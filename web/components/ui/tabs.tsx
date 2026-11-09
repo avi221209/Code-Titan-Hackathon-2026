@@ -4,6 +4,7 @@ import * as React from 'react';
 import { cn } from '@/lib/utils';
 
 interface TabsContextValue {
+  baseId: string;
   value: string;
   onValueChange: (value: string) => void;
 }
@@ -32,6 +33,7 @@ function Tabs({
   children,
   ...props
 }: TabsProps) {
+  const baseId = React.useId();
   const [internalValue, setInternalValue] = React.useState(defaultValue);
   const currentValue = controlledValue ?? internalValue;
 
@@ -47,7 +49,7 @@ function Tabs({
 
   return (
     <TabsContext.Provider
-      value={{ value: currentValue, onValueChange: handleChange }}
+      value={{ baseId, value: currentValue, onValueChange: handleChange }}
     >
       <div className={cn('flex flex-col gap-4', className)} {...props}>
         {children}
@@ -64,7 +66,7 @@ const TabsList = React.forwardRef<
     ref={ref}
     role="tablist"
     className={cn(
-      'inline-flex items-center gap-1 rounded-md border border-border bg-muted p-1 text-muted-foreground',
+      'inline-flex w-fit flex-wrap items-center gap-1 rounded-md border border-border bg-muted p-1 text-muted-foreground',
       className
     )}
     {...props}
@@ -78,20 +80,66 @@ export interface TabsTriggerProps
 }
 
 const TabsTrigger = React.forwardRef<HTMLButtonElement, TabsTriggerProps>(
-  ({ className, value, ...props }, ref) => {
+  ({ className, value, onKeyDown, ...props }, ref) => {
     const ctx = useTabsContext();
     const isSelected = ctx.value === value;
+
+    const handleKeyDown = (event: React.KeyboardEvent<HTMLButtonElement>) => {
+      onKeyDown?.(event);
+      if (event.defaultPrevented) {
+        return;
+      }
+
+      const tabList = event.currentTarget.closest('[role="tablist"]');
+      if (!tabList) {
+        return;
+      }
+
+      const tabs = Array.from(
+        tabList.querySelectorAll<HTMLButtonElement>('[role="tab"]:not([disabled])')
+      );
+      const currentIndex = tabs.indexOf(event.currentTarget);
+      if (currentIndex === -1 || tabs.length === 0) {
+        return;
+      }
+
+      let targetIndex: number | null = null;
+      if (event.key === 'ArrowRight') {
+        targetIndex = (currentIndex + 1) % tabs.length;
+      } else if (event.key === 'ArrowLeft') {
+        targetIndex = (currentIndex - 1 + tabs.length) % tabs.length;
+      } else if (event.key === 'Home') {
+        targetIndex = 0;
+      } else if (event.key === 'End') {
+        targetIndex = tabs.length - 1;
+      }
+
+      if (targetIndex !== null) {
+        event.preventDefault();
+        const nextTab = tabs[targetIndex];
+        const nextValue = nextTab?.dataset.tabValue;
+        nextTab?.focus();
+        if (nextValue) {
+          ctx.onValueChange(nextValue);
+        }
+      }
+    };
 
     return (
       <button
         ref={ref}
         type="button"
         role="tab"
+        id={`${ctx.baseId}-tab-${value}`}
+        aria-controls={`${ctx.baseId}-panel-${value}`}
         aria-selected={isSelected}
+        tabIndex={isSelected ? 0 : -1}
+        data-tab-value={value}
         data-state={isSelected ? 'active' : 'inactive'}
         onClick={() => ctx.onValueChange(value)}
+        onKeyDown={handleKeyDown}
         className={cn(
-          'inline-flex items-center justify-center whitespace-nowrap rounded-sm px-3 py-1.5 text-sm font-medium transition-colors duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:pointer-events-none disabled:opacity-50 motion-reduce:transition-none',
+          'inline-flex items-center justify-center gap-2 whitespace-nowrap rounded-sm px-3 py-1.5 text-sm font-medium transition-colors duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:pointer-events-none disabled:opacity-50 motion-reduce:transition-none',
           isSelected
             ? 'bg-card text-foreground shadow-sm'
             : 'text-muted-foreground hover:text-foreground',
@@ -120,6 +168,8 @@ const TabsContent = React.forwardRef<HTMLDivElement, TabsContentProps>(
       <div
         ref={ref}
         role="tabpanel"
+        id={`${ctx.baseId}-panel-${value}`}
+        aria-labelledby={`${ctx.baseId}-tab-${value}`}
         tabIndex={0}
         className={cn('focus-visible:outline-none', className)}
         {...props}

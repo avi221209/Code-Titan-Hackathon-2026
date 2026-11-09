@@ -1,3 +1,5 @@
+import 'server-only';
+
 export interface PublicEnv {
   NEXT_PUBLIC_SUPABASE_URL: string;
   NEXT_PUBLIC_SUPABASE_ANON_KEY: string;
@@ -9,11 +11,16 @@ export interface ServerEnv extends PublicEnv {
   AI_SERVICE_TOKEN: string;
 }
 
+export interface DemoCredentials {
+  email: string;
+  password: string;
+}
+
 function requireEnv(name: string, value: string | undefined): string {
   if (!value || value.trim().length === 0) {
     throw new Error(`Missing required environment variable: ${name}`);
   }
-  return value;
+  return value.trim();
 }
 
 export function getPublicEnv(): PublicEnv {
@@ -26,6 +33,21 @@ export function getPublicEnv(): PublicEnv {
       'NEXT_PUBLIC_SUPABASE_ANON_KEY',
       process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
     ),
+  };
+}
+
+/**
+ * M1-isolated server-only helper for one-click demo authentication.
+ * Does not require M2/admin variables (SUPABASE_SERVICE_ROLE_KEY, AI_SERVICE_*).
+ */
+export function getDemoCredentials(): DemoCredentials {
+  if (typeof window !== 'undefined') {
+    throw new Error('getDemoCredentials() must only be called on the server.');
+  }
+
+  return {
+    email: requireEnv('DEMO_EMAIL', process.env.DEMO_EMAIL),
+    password: requireEnv('DEMO_PASSWORD', process.env.DEMO_PASSWORD),
   };
 }
 

@@ -1,20 +1,35 @@
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { redirect } from 'next/navigation';
+import { LoginForms } from '@/components/login-forms';
+import { createClient } from '@/lib/supabase/server';
 
-export default function LoginPage() {
+export const dynamic = 'force-dynamic';
+
+export default async function LoginPage() {
+  const supabaseConfigured = Boolean(
+    process.env.NEXT_PUBLIC_SUPABASE_URL &&
+      process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
+  );
+
+  if (supabaseConfigured) {
+    const supabase = await createClient();
+    const {
+      data: { user },
+    } = await supabase.auth.getUser();
+
+    if (user) {
+      redirect('/dashboard');
+    }
+  }
+
   return (
-    <main className="mx-auto flex min-h-[100dvh] max-w-xl items-center px-6 py-12">
-      <Card className="w-full">
-        <CardHeader>
-          <CardTitle className="font-serif text-2xl">
-            Sign in to BrandGuardian
-          </CardTitle>
-        </CardHeader>
-        <CardContent>
-          <p className="text-sm text-muted-foreground">
-            Authenticates workspace members via Supabase SSR and provides one-click access to the synthetic Asterra demo workspace (Coming in M1).
-          </p>
-        </CardContent>
-      </Card>
+    <main className="mx-auto flex min-h-[100dvh] w-full max-w-6xl items-center px-6 py-12">
+      <LoginForms
+        configWarning={
+          supabaseConfigured
+            ? undefined
+            : 'Supabase environment variables are not configured on this server yet.'
+        }
+      />
     </main>
   );
 }
