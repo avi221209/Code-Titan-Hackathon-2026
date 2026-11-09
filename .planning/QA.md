@@ -145,7 +145,7 @@
 | Check | Status | Evidence |
 | --- | --- | --- |
 | Repo isolation & `.gitignore` | **PASS** | `.env*` gitignored (`git check-ignore -v` verified); `main` builds cleanly on `1fc322b` -> `e94ee70` -> Tier A fixes; `chunks-tmp` (`90295dc`) preserved |
-| Tier B deferred isolation diff check | **PASS** | `git diff e94ee70..HEAD -- web/middleware.ts web/lib/workspace.ts web/package.json "web/app/(app)/loading.tsx" "web/app/(auth)/login/actions.ts" web/lib/types/finding.ts` → empty (`[DEF-09]`, `[DEF-11]`, `[DEF-12]` untouched); `[DEF-08]` (`3727052`) & `[DEF-10]` (`1db160f`) applied cleanly per explicit `APPROVED`. |
+| Tier B deferred isolation diff check | **PASS** | `git diff 173670c..HEAD -- web/middleware.ts web/lib/workspace.ts web/package.json "web/app/(app)/loading.tsx" "web/app/(app)/documents/[id]/loading.tsx" "web/app/(app)/documents/[id]/history/loading.tsx" "web/app/(auth)/login/actions.ts" web/lib/types/finding.ts` → empty (`[DEF-09]`, `[DEF-11]`, `[DEF-12]` untouched); `[DEF-08]` (`3727052`) & `[DEF-10]` (`1db160f`) applied cleanly per explicit `APPROVED`. |
 
 ---
 
