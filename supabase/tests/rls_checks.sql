@@ -1,15 +1,15 @@
 -- =====================================================================
--- BrandGuardian (M1) — RLS Isolation & Role Enforcement Verification
+-- BrandGuardian (M1 / Hardened) — RLS Isolation & Role Verification
 -- =====================================================================
 -- Run BLOCK 1 in Supabase SQL Editor first.
 -- Note: Supabase SQL Editor displays only the last statement's output.
 -- If your editor shows "No rows returned" because ROLLBACK runs last,
 -- highlight from `begin;` through `select * from results order by case_id;`,
--- run that selection to inspect the 5 rows, and then run `rollback;`.
+-- run that selection to inspect the 7 rows (cases a-g), and then run `rollback;`.
 -- =====================================================================
 
 -- ---------------------------------------------------------------------
--- BLOCK 1: Impersonated RLS test cases (a) through (e)
+-- BLOCK 1: Impersonated RLS test cases (a) through (g)
 -- ---------------------------------------------------------------------
 begin;
 
@@ -274,6 +274,115 @@ insert into results(case_id, description, expected, actual, pass) values (
   'SQLSTATE 42501 (RLS denied)',
   current_setting('bg.res_e_actual'),
   current_setting('bg.res_e_pass')::boolean
+);
+
+-- Seed a fixture document inside Asterra owned by judge (rolled back at end)
+-- and add temporary Northwind membership for judge so case (f) isolates the
+-- 0002 immutability trigger even for a multi-workspace member.
+do $$
+declare
+  v_doc uuid;
+begin
+  insert into public.documents(workspace_id, created_by, title, content)
+  values (
+    current_setting('bg.asterra_id')::uuid,
+    current_setting('bg.judge_id')::uuid,
+    'RLS Immutability Fixture Draft',
+    'Asterra Flow fixture draft for immutability trigger verification.'
+  )
+  returning id into v_doc;
+
+  perform set_config('bg.test_doc_id', v_doc::text, true);
+
+  insert into public.workspace_members(workspace_id, user_id, role)
+  values (
+    current_setting('bg.northwind_id')::uuid,
+    current_setting('bg.judge_id')::uuid,
+    'creator'
+  )
+  on conflict do nothing;
+end $$;
+
+-- Case (f): updating documents.workspace_id is denied
+set local role authenticated;
+select set_config(
+  'request.jwt.claims',
+  json_build_object('sub', current_setting('bg.judge_id'), 'role', 'authenticated')::text,
+  true
+);
+do $$
+declare
+  v_rows int := 0;
+begin
+  begin
+    update public.documents
+    set workspace_id = current_setting('bg.northwind_id')::uuid
+    where id = current_setting('bg.test_doc_id')::uuid;
+
+    get diagnostics v_rows = row_count;
+    perform set_config(
+      'bg.res_f_actual',
+      format('UNEXPECTED SUCCESS: updated %s row(s) workspace_id', v_rows),
+      true
+    );
+    perform set_config('bg.res_f_pass', 'false', true);
+  exception
+    when sqlstate '42501' then
+      perform set_config('bg.res_f_actual', format('denied (%s): %s', SQLSTATE, SQLERRM), true);
+      perform set_config('bg.res_f_pass', 'true', true);
+    when others then
+      perform set_config('bg.res_f_actual', format('error (%s): %s', SQLSTATE, SQLERRM), true);
+      perform set_config('bg.res_f_pass', 'false', true);
+  end;
+end $$;
+reset role;
+insert into results(case_id, description, expected, actual, pass) values (
+  'f',
+  'updating documents.workspace_id is denied',
+  'SQLSTATE 42501 (immutable column / trigger denied)',
+  current_setting('bg.res_f_actual'),
+  current_setting('bg.res_f_pass')::boolean
+);
+
+-- Case (g): updating documents.created_by is denied
+set local role authenticated;
+select set_config(
+  'request.jwt.claims',
+  json_build_object('sub', current_setting('bg.judge_id'), 'role', 'authenticated')::text,
+  true
+);
+do $$
+declare
+  v_rows int := 0;
+begin
+  begin
+    update public.documents
+    set created_by = current_setting('bg.outsider_id')::uuid
+    where id = current_setting('bg.test_doc_id')::uuid;
+
+    get diagnostics v_rows = row_count;
+    perform set_config(
+      'bg.res_g_actual',
+      format('UNEXPECTED SUCCESS: updated %s row(s) created_by', v_rows),
+      true
+    );
+    perform set_config('bg.res_g_pass', 'false', true);
+  exception
+    when sqlstate '42501' then
+      perform set_config('bg.res_g_actual', format('denied (%s): %s', SQLSTATE, SQLERRM), true);
+      perform set_config('bg.res_g_pass', 'true', true);
+    when others then
+      perform set_config('bg.res_g_actual', format('error (%s): %s', SQLSTATE, SQLERRM), true);
+      perform set_config('bg.res_g_pass', 'false', true);
+  end;
+end $$;
+reset role;
+insert into results(case_id, description, expected, actual, pass) values (
+  'g',
+  'updating documents.created_by is denied',
+  'SQLSTATE 42501 (immutable column / trigger denied)',
+  current_setting('bg.res_g_actual'),
+  current_setting('bg.res_g_pass')::boolean
 );
 
 select * from results order by case_id;
