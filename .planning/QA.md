@@ -71,11 +71,10 @@
 
 | Check | Status | Observed Output |
 | --- | --- | --- |
-| `GET /health` | **PASS** | `HTTP 200` `{"status":"ok","provider":"groq","llm_configured":true,"model":"openai/gpt-oss-20b"}` (`1.7 ms`) |
+| Pytest suite (with `[DEF-08]` test) | **PASS** | `.\ai-service\.venv\Scripts\python.exe -m pytest -q ai-service` → `12 passed in 0.40s` (`PYTEST_EXIT:0`) |
+| `GET /health` | **PASS** | `HTTP 200` `{"status":"ok","provider":"groq","llm_configured":true,"model":"openai/gpt-oss-20b"}` |
 | `GET /` | **PASS** | `HTTP 404` `{"detail":"Not Found"}` |
-| `POST /review` (valid body, missing or wrong `x-api-key`) | **PASS** | `HTTP 401` `{"detail":"unauthorized"}` |
-| `POST /review` (`{}` empty body, no `x-api-key`) | **FAIL** | Returned `HTTP 422` Pydantic validation error BEFORE `HTTP 401` auth check (`[DEF-08]`, Tier B — `ai-service/main.py`) |
-| `git diff e94ee70..HEAD -- ai-service/main.py` | **PASS** | Empty diff (`ai-service/main.py` untouched during M1 & Tier A fixes) |
+| `POST /review` (valid body & `{}` empty body, missing/wrong `x-api-key`) | **PASS** | Returns `HTTP 401 {"detail":"unauthorized"}` via `Depends(require_key)` (`[DEF-08]` fixed in `3727052`) |
 | Live Groq `POST http://127.0.0.1:8000/review` with server `.env` token | **USER-RUN** | Requires user-held `AI_SERVICE_TOKEN` inside `ai-service/.env` (agent never reads `.env` files). |
 
 ---
@@ -128,7 +127,7 @@
 | `/api/health` & AI `/health` | `< 1s` | **PASS** | Web `6.2 ms`, AI `1.7 ms` |
 | `POST /api/documents` invalid payloads | `< 1s` | **PASS** | `254.2–319.3 ms` (down from `710–1324 ms` after `[DEF-07]`) |
 | `GET /api/documents` (auth) | `< 3s` | **PASS** | `902.1 ms` |
-| `/dashboard` full navigation (`5x` prod server) | `< 3s` | **FAIL** | `[3372.1, 3568.5, 2861.4, 3249.1, 4144.7]` ms → **median `3372.1 ms`, worst `4144.7 ms`** (`[DEF-11]`, Tier B remote `auth.getUser()` RTT) |
+| `/dashboard` full navigation (`5x` prod server, re-measured) | `< 3s` | **FAIL** *(cold #1)* / **PASS** *(median)* | `[4224.2, 1559.9, 1309.2, 1613.7, 1399.3]` ms → **min `1309.2 ms`, median `1559.9 ms`, max `4224.2 ms`** (`[DEF-11]` deferred) |
 
 ---
 
@@ -146,7 +145,7 @@
 | Check | Status | Evidence |
 | --- | --- | --- |
 | Repo isolation & `.gitignore` | **PASS** | `.env*` gitignored (`git check-ignore -v` verified); `main` builds cleanly on `1fc322b` -> `e94ee70` -> Tier A fixes; `chunks-tmp` (`90295dc`) preserved |
-| Tier B untouched diff check | **PASS** | `git diff e94ee70..HEAD -- ai-service/main.py supabase/ web/middleware.ts "web/app/(auth)/login/actions.ts" web/lib/types/finding.ts` → empty (`TIER_B_DIFF_EXIT:0`) |
+| Tier B deferred isolation diff check | **PASS** | `git diff e94ee70..HEAD -- web/middleware.ts web/lib/workspace.ts web/package.json "web/app/(app)/loading.tsx" "web/app/(auth)/login/actions.ts" web/lib/types/finding.ts` → empty (`[DEF-09]`, `[DEF-11]`, `[DEF-12]` untouched); `[DEF-08]` (`3727052`) & `[DEF-10]` (`1db160f`) applied cleanly per explicit `APPROVED`. |
 
 ---
 
@@ -155,7 +154,7 @@
 | Milestone | P0 Capability | Implementation & Verification Status |
 | --- | --- | --- |
 | **M0** | Next.js + TS + Tailwind + tokens + Supabase client boundaries + `ai-service/` verbatim + gitignored `.env` | **PASS** (`1fc322b`) |
-| **M1** | `0001_schema.sql` + `seed.sql` + `@supabase/ssr` demo & email login + middleware redirects + RLS workspace & knowledge UI + `/documents/new` (`<= 6000`) + `/documents/[id]` read-only + `rls_checks.sql` | **PASS (Web E2E + Build + Static)** / **USER-RUN (SQL Editor `rls_checks.sql`)** — Tier A `[DEF-01]`..`[DEF-07]` fixed; Tier B `[DEF-08]`..`[DEF-12]` diagnosed awaiting `APPROVED` |
+| **M1** | `0001_schema.sql` + `seed.sql` + `@supabase/ssr` demo & email login + middleware redirects + RLS workspace & knowledge UI + `/documents/new` (`<= 6000`) + `/documents/[id]` read-only + `rls_checks.sql` | **PASS (Web E2E + Build + Static)** / **USER-RUN (SQL Editor `0002_rls_hardening.sql` & `rls_checks.sql`)** — `[DEF-01]`–`[DEF-08]` fixed; `[DEF-10]` SQL committed; `[DEF-09]`, `[DEF-11]`, `[DEF-12]` deferred |
 | **M2** | Core Review Engine (`POST /api/review`, findings/suggestions persistence, review UI pane, AI banner) | **N/A** (Not started; `/api/review` returns `501`) |
 | **M3** | Human workflow (`POST /api/suggestions/[id]/decision`, diff & Accept/Edit/Reject/Dismiss, `/documents/[id]/history` audit timeline) | **N/A** (Not started; `/api/suggestions/[id]/decision` returns `501`) |
 | **M4–M6** | Deployment, analytics, final pre-demo gate | **N/A** (Not started) |

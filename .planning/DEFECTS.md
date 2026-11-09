@@ -67,30 +67,17 @@
 
 ---
 
-### Open (Tier B — Diagnosed, Awaiting Explicit User `"APPROVED"`)
+### Tier B — Approved (`[DEF-08]`, `[DEF-10]`) & Deferred (`[DEF-09]`, `[DEF-11]`, `[DEF-12]`)
 
 ### `[DEF-08]` — `ai-service` `POST /review` returns HTTP `422` schema error before HTTP `401` auth when payload is invalid
-- **Severity:** `P2` | **Tier:** `Tier B` *(touches `ai-service/main.py`)* | **Layer:** L3, L4, L5 | **Status:** `DIAGNOSED (Tier B)`
-- **Evidence (Round 1 & Round 2):** Unauthenticated `POST http://127.0.0.1:8000/review` with `{}` returned `HTTP 422` revealing Pydantic schema requirements (`document_id`, `workspace_id`, etc.), while valid body without key returned `HTTP 401`.
-- **Root Cause:** `ai-service/main.py:375-377` validates `x_api_key` inside the route handler body after FastAPI has already parsed `ReviewRequest`.
-- **Proposed Diff (awaiting `APPROVED`):**
-```diff
--def require_key(x_api_key: Optional[str]) -> None:
-+def require_key(x_api_key: Optional[str] = Header(default=None)) -> None:
-     token = os.getenv("AI_SERVICE_TOKEN", "")
-     if not token or not x_api_key or not hmac.compare_digest(x_api_key, token):
-         raise HTTPException(status_code=401, detail="unauthorized")
- ...
--@app.post("/review", response_model=ReviewResponse)
--async def review(req: ReviewRequest, x_api_key: Optional[str] = Header(default=None)):
--    require_key(x_api_key)
-+@app.post("/review", response_model=ReviewResponse, dependencies=[Depends(require_key)])
-+async def review(req: ReviewRequest):
-```
-*(Requires importing `Depends` from `fastapi` in `ai-service/main.py`.)*
+- **Severity:** `P2` | **Tier:** `Tier B` *(APPROVED — touches `ai-service/main.py`)* | **Layer:** L3, L4, L5 | **Status:** `FIXED (3727052)`
+- **Before Evidence:** Unauthenticated `POST http://127.0.0.1:8000/review` with `{}` returned `HTTP 422` revealing Pydantic schema requirements (`document_id`, `workspace_id`, etc.) before auth validation.
+- **Root Cause:** `ai-service/main.py:375-377` validated `x_api_key` inside the route handler after FastAPI parsed `ReviewRequest`.
+- **Fix Applied (`3727052`):** Added RED->GREEN test `test_review_rejects_unauthenticated_empty_body_with_401` in `ai-service/test_checks.py` and moved `require_key` to `dependencies=[Depends(require_key)]` on `@app.post("/review")` in `ai-service/main.py`.
+- **After Evidence:** `.\ai-service\.venv\Scripts\python.exe -m pytest -q ai-service` → `12 passed`; live `POST http://127.0.0.1:8000/review` with `{}` and no `x-api-key` returns `HTTP 401 {"detail":"unauthorized"}`.
 
 ### `[DEF-09]` — Missing ESLint script/config & 4 transitive `postcss` advisories in `pnpm audit`
-- **Severity:** `P2` | **Tier:** `Tier B` *(dependency changes in `web/package.json` / `pnpm-lock.yaml`)* | **Layer:** L1, L5(e) | **Status:** `DIAGNOSED (Tier B)`
+- **Severity:** `P2` | **Tier:** `Tier B` *(DEFERRED — dependency changes in `web/package.json` / `pnpm-lock.yaml`)* | **Layer:** L1, L5(e) | **Status:** `OPEN / DEFERRED (Tier B)`
 - **Evidence (Round 1 & Round 2):** `web/package.json:5-11` has no `"lint"` script or ESLint devDependencies; `pnpm --dir web audit --json` reports `{'info': 0, 'low': 0, 'moderate': 2, 'high': 2, 'critical': 0}` (4 transitive `next > postcss <= 8.5.22` advisories).
 - **Root Cause:** ESLint was omitted in M0 and transitive `postcss` inside Next `15.5.29` resolves below `8.5.23`.
 - **Proposed Diff (awaiting `APPROVED`):**
@@ -117,62 +104,24 @@
 ```
 
 ### `[DEF-10]` — `documents_update` RLS `with check` allows changing `workspace_id`/`created_by`/`status`; broad `GRANT DELETE` & missing RLS indexes
-- **Severity:** `P1` *(database defense-in-depth; M1 exposes no document `UPDATE` route/UI)* | **Tier:** `Tier B` *(touches `supabase/`)* | **Layer:** L5(g) | **Status:** `DIAGNOSED (Tier B)`
-- **Evidence:** `supabase/migrations/0001_schema.sql:163-173` calls `auth.uid()` directly rather than `(select auth.uid())`; lines `158-160` index only 3 tables while omitting `workspace_members(user_id)`, `guideline_rules(workspace_id, approved)`, `approved_facts(workspace_id, status)`, `terminology(workspace_id)`; line `216-218` `documents_update` `with check (public.is_member(workspace_id))` lets an updater move a document into another workspace they belong to or alter `created_by`/`status`; line `240` grants `delete` on all public tables to `authenticated`.
+- **Severity:** `P1` *(database defense-in-depth; M1 exposes no document `UPDATE` route/UI)* | **Tier:** `Tier B` *(APPROVED — touches `supabase/`)* | **Layer:** L5(g) | **Status:** `SQL COMMITTED (1db160f) — NOT APPLIED, PENDING USER-RUN`
+- **Before Evidence:** `supabase/migrations/0001_schema.sql:163-173` called `auth.uid()` directly rather than `(select auth.uid())`; lines `158-160` omitted RLS indexes on `workspace_members`, `guideline_rules`, `approved_facts`, and `terminology`; `documents_update` `with check (public.is_member(workspace_id))` allowed altering `workspace_id`/`created_by` on update; line `240` granted `delete` on all public tables to `authenticated`.
 - **Root Cause:** Compact M0 DDL prioritized brevity over column immutability checks, least-privilege grants, and RLS index coverage.
-- **Proposed Diff (awaiting `APPROVED`):** Add `supabase/migrations/0002_rls_hardening.sql`:
-```sql
--- Wrap auth.uid() in initplan subselects inside helpers
-create or replace function public.is_member(ws uuid) returns boolean
-language sql stable security definer set search_path = public as $$
-  select exists (select 1 from public.workspace_members m
-                 where m.workspace_id = ws and m.user_id = (select auth.uid()));
-$$;
+- **Fix Applied (`1db160f`):** Added idempotent `supabase/migrations/0002_rls_hardening.sql` (not applied anywhere) containing `(select auth.uid())` in `is_member`/`has_role` (`SECURITY DEFINER`, `SET search_path = public`), `BEFORE UPDATE` immutability trigger on `public.documents` (`workspace_id`, `created_by`), tightened `documents_update`, `REVOKE DELETE` from `authenticated` on all 14 public tables, the 4 indexes, and rollback note; extended `supabase/tests/rls_checks.sql` with cases `(f)` and `(g)`. Pending manual execution in Supabase SQL Editor.
 
-create or replace function public.has_role(ws uuid, roles text[]) returns boolean
-language sql stable security definer set search_path = public as $$
-  select exists (select 1 from public.workspace_members m
-                 where m.workspace_id = ws and m.user_id = (select auth.uid()) and m.role = any(roles));
-$$;
-
--- Tighten documents_update + lock immutable columns on UPDATE via trigger
-create or replace function public.enforce_document_immutability() returns trigger
-language plpgsql as $$
-begin
-  if new.workspace_id is distinct from old.workspace_id
-     or new.created_by is distinct from old.created_by then
-    raise exception 'workspace_id and created_by are immutable';
-  end if;
-  return new;
-end;
-$$;
-
-drop trigger if exists trg_documents_immutable on public.documents;
-create trigger trg_documents_immutable
-  before update on public.documents
-  for each row execute function public.enforce_document_immutability();
-
--- Revoke unnecessary DELETE privilege from authenticated users on immutable/audit/workflow tables
-revoke delete on public.audit_events, public.review_decisions, public.review_runs, public.findings, public.suggestions, public.documents, public.workspaces, public.workspace_members, public.profiles from authenticated;
-
--- Add RLS/query indexes
-create index if not exists idx_workspace_members_user on public.workspace_members (user_id, workspace_id);
-create index if not exists idx_guideline_rules_ws_approved on public.guideline_rules (workspace_id, approved);
-create index if not exists idx_approved_facts_ws_status on public.approved_facts (workspace_id, status);
-create index if not exists idx_terminology_ws on public.terminology (workspace_id);
-```
-
-### `[DEF-11]` — Protected `/dashboard` SSR navigations exceed `3s` target (`median 3372.1 ms`, `worst 4144.7 ms`) due to repeated remote `auth.getUser()` RTT
-- **Severity:** `P1` | **Tier:** `Tier B` *(touches `web/middleware.ts` & auth validation flow)* | **Layer:** L8 | **Status:** `DIAGNOSED (Tier B)`
-- **Evidence (Round 2):** `5x` Playwright `/dashboard` navigations measured `[3372.1, 3568.5, 2861.4, 3249.1, 4144.7]` ms (`median 3372.1 ms`, `worst 4144.7 ms`); `GET /api/documents` (`902.1 ms`).
+### `[DEF-11]` — Protected `/dashboard` SSR navigations show `4.22s` cold first-load latency (`1.31–1.61s` warm) due to repeated remote `auth.getUser()` RTT
+- **Severity:** `P1` | **Tier:** `Tier B` *(DEFERRED — touches `web/middleware.ts` & auth validation flow)* | **Layer:** L8 | **Status:** `OPEN / DEFERRED (Tier B)`
+- **Evidence:**
+  - Initial Round 2 (`next start`): `[3372.1, 3568.5, 2861.4, 3249.1, 4144.7]` ms (`median 3372.1 ms`, `worst 4144.7 ms`).
+  - Re-measurement against fresh production build (`pnpm build` + `next start -p 3000`): `[4224.2, 1559.9, 1309.2, 1613.7, 1399.3]` ms (`min 1309.2 ms`, **`median 1559.9 ms`**, `max 4224.2 ms`).
 - **Root Cause:** Every protected SSR page executes `supabase.auth.getUser()` remotely in `web/middleware.ts:48` and again in `web/lib/workspace.ts:47` before running page queries against remote Supabase over TLS.
-- **Proposed Fix (awaiting `APPROVED`):** Evaluate switching to Supabase asymmetric JWT signing keys with `supabase.auth.getClaims()` in `web/middleware.ts` (avoiding duplicate remote Auth RTT while keeping server signature verification), or passing verified session context cleanly without trusting unverified cookies.
+- **Proposed Fix (deferred):** Evaluate switching to Supabase asymmetric JWT signing keys with `supabase.auth.getClaims()` in `web/middleware.ts` (avoiding duplicate remote Auth RTT while keeping server signature verification), or passing verified session context cleanly without trusting unverified cookies.
 
 ### `[DEF-12]` — Streaming `loading.tsx` on parent `(app)` and `[id]` dynamic routes flushes `HTTP 200` soft-404 status before `notFound()` renders
-- **Severity:** `P2` | **Tier:** `Tier B` *(requires deleting 3 tracked `loading.tsx` files)* | **Layer:** L3, L6 | **Status:** `DIAGNOSED (Tier B)`
+- **Severity:** `P2` | **Tier:** `Tier B` *(DEFERRED — requires deleting 3 tracked `loading.tsx` files)* | **Layer:** L3, L6 | **Status:** `OPEN / DEFERRED (Tier B)`
 - **Evidence (Round 2):** Before `3cf731c`, `GET /documents/not-a-uuid/history` returned true `HTTP 404` (`9d0d94f`). After `3cf731c` added `loading.tsx` across all `(app)` routes, `GET /documents/not-a-uuid`, `GET /documents/not-a-uuid/history`, and `GET /documents/00000000-0000-0000-0000-000000000000` render `<h1>Page not found</h1>` in DOM via streamed `NEXT_NOT_FOUND`, **but flush HTTP `200` status headers** (`history_negative_checks: { bad_uuid_status: 200, missing_uuid_status: 200 }`).
 - **Root Cause:** Next.js wraps every route segment (and child segments) beneath `loading.tsx` inside React `<Suspense>`, sending HTTP `200` streaming headers immediately before async `notFound()` runs in `documents/[id]/page.tsx` or `documents/[id]/history/page.tsx`.
-- **Proposed Diff (awaiting `APPROVED`):** Remove the 3 `loading.tsx` boundaries covering parent/`[id]` segments while retaining `loading.tsx` on `/dashboard`, `/knowledge`, and `/documents/new`:
+- **Proposed Diff (deferred):** Remove the 3 `loading.tsx` boundaries covering parent/`[id]` segments while retaining `loading.tsx` on `/dashboard`, `/knowledge`, and `/documents/new`:
 ```diff
 - delete web/app/(app)/loading.tsx
 - delete web/app/(app)/documents/[id]/loading.tsx
