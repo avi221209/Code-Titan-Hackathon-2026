@@ -119,3 +119,19 @@ def test_llm_unreachable_gives_unavailable_no_fake_findings():
     import httpx
     findings, status, _, _ = _run_llm_with(exc=httpx.ConnectError("down"))
     assert findings == [] and status == "unavailable"
+
+
+def test_review_rejects_unauthenticated_empty_body_with_401(monkeypatch):
+    from fastapi.testclient import TestClient
+
+    monkeypatch.setenv("AI_SERVICE_TOKEN", "test-secret-token")
+    client = TestClient(m.app)
+    no_key = client.post("/review", json={})
+    assert no_key.status_code == 401
+    assert no_key.json() == {"detail": "unauthorized"}
+
+    wrong_key = client.post("/review", json={}, headers={"x-api-key": "wrong-token"})
+    assert wrong_key.status_code == 401
+
+    valid_key_empty_body = client.post("/review", json={}, headers={"x-api-key": "test-secret-token"})
+    assert valid_key_empty_body.status_code == 422

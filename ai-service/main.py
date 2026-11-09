@@ -25,7 +25,7 @@ import time
 from typing import Literal, Optional
 
 import httpx
-from fastapi import FastAPI, Header, HTTPException
+from fastapi import Depends, FastAPI, Header, HTTPException
 from pydantic import BaseModel, Field, ValidationError
 
 LLM_PROVIDER = os.getenv("LLM_PROVIDER", "ollama").lower()  # "ollama" (local) or "groq" (hosted)
@@ -353,7 +353,7 @@ async def run_llm(text: str, rules: list[Rule]) -> tuple[list[Finding], str, Opt
 app = FastAPI(title="BrandGuardian AI service")
 
 
-def require_key(x_api_key: Optional[str]) -> None:
+def require_key(x_api_key: Optional[str] = Header(default=None)) -> None:
     token = os.getenv("AI_SERVICE_TOKEN", "")
     if not token or not x_api_key or not hmac.compare_digest(x_api_key, token):
         raise HTTPException(status_code=401, detail="unauthorized")
@@ -372,9 +372,8 @@ async def health():
     return {"status": "ok", "provider": "ollama", "ollama": ollama, "model": MODEL}
 
 
-@app.post("/review", response_model=ReviewResponse)
-async def review(req: ReviewRequest, x_api_key: Optional[str] = Header(default=None)):
-    require_key(x_api_key)
+@app.post("/review", response_model=ReviewResponse, dependencies=[Depends(require_key)])
+async def review(req: ReviewRequest):
     t0 = time.perf_counter()
     text, kn = req.content, req.knowledge
 
