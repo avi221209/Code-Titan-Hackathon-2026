@@ -1,0 +1,32 @@
+# Dependencies & Virtual Environments
+node_modules/
+.pnp
+.pnp.*
+.venv/
+venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+
+# Next.js build outputs
+.next/
+out/
+build/
+dist/
+next-env.d.ts
+*.tsbuildinfo
+
+# Environment & Secret files (never commit real credentials)
+.env
+.env.*
+**/.env
+**/.env.*
+!.env.example
+!**/.env.example
+
+# OS & Editor artifacts
+.DS_Store
+Thumbs.db
+*.log
+npm-debug.log*
+pnpm-debug.log*

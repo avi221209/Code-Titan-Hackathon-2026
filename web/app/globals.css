@@ -1,0 +1,100 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  /* Core Palette — Warm Paper, Ink, Deep Teal */
+  --bg-canvas: #F7F5F0;
+  --bg-surface: #FFFFFF;
+  --bg-muted: #EFECE4;
+  --bg-accent: #E6F2F2;
+  --text-ink: #14171C;
+  --text-muted: #5A6270;
+  --accent-teal: #0F6B6B;
+  --accent-teal-foreground: #FFFFFF;
+  --border-subtle: #E4DFD5;
+  --focus-ring: #0F6B6B;
+
+  /* Severity Tokens — Crimson, Burnt Orange, Amber, Slate */
+  --sev-critical-fg: #B91C1C;
+  --sev-critical-bg: #FEF2F2;
+  --sev-critical-border: #FECACA;
+  --sev-high-fg: #C2410C;
+  --sev-high-bg: #FFF7ED;
+  --sev-high-border: #FED7AA;
+  --sev-medium-fg: #B45309;
+  --sev-medium-bg: #FFFBEB;
+  --sev-medium-border: #FDE68A;
+  --sev-low-fg: #475569;
+  --sev-low-bg: #F8FAFC;
+  --sev-low-border: #CBD5E1;
+
+  /* 8px Spacing Scale */
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-6: 24px;
+  --space-8: 32px;
+  --space-12: 48px;
+  --space-16: 64px;
+
+  /* Consistent Radius Scale */
+  --radius-sm: 4px;
+  --radius-md: 8px;
+  --radius-lg: 12px;
+  --radius-xl: 16px;
+}
+
+.dark {
+  --bg-canvas: #121417;
+  --bg-surface: #1A1D24;
+  --bg-muted: #222630;
+  --bg-accent: #0E2F2F;
+  --text-ink: #EDEDED;
+  --text-muted: #9BA3AF;
+  --accent-teal: #1FB2B2;
+  --accent-teal-foreground: #0D1117;
+  --border-subtle: #2A2F38;
+  --focus-ring: #2DD4BF;
+
+  --sev-critical-fg: #FCA5A5;
+  --sev-critical-bg: #450A0A;
+  --sev-critical-border: #7F1D1D;
+  --sev-high-fg: #FDBA74;
+  --sev-high-bg: #431407;
+  --sev-high-border: #9A3412;
+  --sev-medium-fg: #FCD34D;
+  --sev-medium-bg: #451A03;
+  --sev-medium-border: #92400E;
+  --sev-low-fg: #CBD5E1;
+  --sev-low-bg: #1E293B;
+  --sev-low-border: #475569;
+}
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+
+  body {
+    background-color: var(--bg-canvas);
+    color: var(--text-ink);
+  }
+
+  :focus-visible {
+    outline: 2px solid var(--focus-ring);
+    outline-offset: 2px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
