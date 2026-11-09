@@ -1,5 +1,12 @@
+import type { Metadata } from 'next';
 import Link from 'next/link';
 import { Card, CardContent, CardHeader } from '@/components/ui/card';
+
+export const metadata: Metadata = {
+  title: {
+    absolute: 'BrandGuardian — Brand Compliance Workspace',
+  },
+};
 
 export default function HomePage() {
   return (

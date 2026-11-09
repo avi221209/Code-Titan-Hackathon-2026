@@ -1,9 +1,14 @@
+import type { Metadata } from 'next';
 import { redirect } from 'next/navigation';
 import { NewDocumentForm } from '@/components/new-document-form';
 import { Badge } from '@/components/ui/badge';
 import { getWorkspaceContext } from '@/lib/workspace';
 
 export const dynamic = 'force-dynamic';
+
+export const metadata: Metadata = {
+  title: 'New Document',
+};
 
 export default async function NewDocumentPage() {
   const ctx = await getWorkspaceContext();

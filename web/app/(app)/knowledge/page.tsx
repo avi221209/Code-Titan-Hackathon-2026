@@ -1,3 +1,4 @@
+import type { Metadata } from 'next';
 import Link from 'next/link';
 import { redirect } from 'next/navigation';
 import {
@@ -12,6 +13,10 @@ import type { Severity } from '@/lib/types/finding';
 import { getWorkspaceContext } from '@/lib/workspace';
 
 export const dynamic = 'force-dynamic';
+
+export const metadata: Metadata = {
+  title: 'Knowledge Base',
+};
 
 interface RuleQueryRow {
   id: string;

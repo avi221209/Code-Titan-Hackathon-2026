@@ -1,3 +1,4 @@
+import type { Metadata } from 'next';
 import Link from 'next/link';
 import { redirect } from 'next/navigation';
 import { FilePlus2, FileText } from 'lucide-react';
@@ -6,6 +7,10 @@ import { createClient } from '@/lib/supabase/server';
 import { getWorkspaceContext } from '@/lib/workspace';
 
 export const dynamic = 'force-dynamic';
+
+export const metadata: Metadata = {
+  title: 'Dashboard',
+};
 
 interface DocumentSummaryRow {
   id: string;

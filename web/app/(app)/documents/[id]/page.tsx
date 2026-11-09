@@ -1,3 +1,4 @@
+import type { Metadata } from 'next';
 import Link from 'next/link';
 import { notFound, redirect } from 'next/navigation';
 import { ArrowLeft, Info } from 'lucide-react';
@@ -7,6 +8,10 @@ import { isUuid } from '@/lib/validators/m1';
 import { getWorkspaceContext } from '@/lib/workspace';
 
 export const dynamic = 'force-dynamic';
+
+export const metadata: Metadata = {
+  title: 'Document Draft',
+};
 
 interface DocumentDetailRow {
   id: string;

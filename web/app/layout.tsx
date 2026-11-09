@@ -22,7 +22,10 @@ const jetbrainsMono = JetBrains_Mono({
 });
 
 export const metadata: Metadata = {
-  title: 'BrandGuardian',
+  title: {
+    default: 'BrandGuardian',
+    template: '%s | BrandGuardian',
+  },
   description:
     'Evidence-backed brand compliance review workspace for editorial and marketing teams.',
 };
