@@ -48,7 +48,7 @@ export function parseLoginInput(
 export function validateDocumentInput(
   payload: unknown
 ): ValidationResult<{ title: string; content: string }> {
-  if (!payload || typeof payload !== 'object') {
+  if (!payload || typeof payload !== 'object' || Array.isArray(payload)) {
     return { ok: false, error: 'Invalid request payload.' };
   }
 
@@ -57,6 +57,13 @@ export function validateDocumentInput(
     return {
       ok: false,
       error: 'Both document title and content must be strings.',
+    };
+  }
+
+  if (record.title.includes('\u0000') || record.content.includes('\u0000')) {
+    return {
+      ok: false,
+      error: 'Document title and content cannot contain null bytes.',
     };
   }
 

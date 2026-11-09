@@ -79,6 +79,24 @@ test('validateDocumentInput enforces required fields and 6000 char ceiling', () 
 
   const badType = validateDocumentInput(null);
   assert.equal(badType.ok, false);
+
+  const arrayPayload = validateDocumentInput(['not', 'an', 'object']);
+  assert.equal(arrayPayload.ok, false);
+  if (!arrayPayload.ok) {
+    assert.equal(arrayPayload.error, 'Invalid request payload.');
+  }
+
+  const nulTitle = validateDocumentInput({
+    title: 'Hello\u0000World',
+    content: 'Valid content',
+  });
+  assert.equal(nulTitle.ok, false);
+
+  const nulContent = validateDocumentInput({
+    title: 'Valid title',
+    content: 'Hello\u0000World',
+  });
+  assert.equal(nulContent.ok, false);
 });
 
 test('isUuid accepts canonical UUIDs and rejects malformed strings', () => {

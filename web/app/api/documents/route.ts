@@ -62,20 +62,6 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }
 
-  const ctx = await getWorkspaceContext();
-  if (ctx.queryError) {
-    return NextResponse.json(
-      { error: 'Unable to verify workspace membership.' },
-      { status: 500 }
-    );
-  }
-  if (!ctx.workspace) {
-    return NextResponse.json(
-      { error: 'No active workspace membership found.' },
-      { status: 403 }
-    );
-  }
-
   let body: unknown;
   try {
     body = await request.json();
@@ -89,6 +75,20 @@ export async function POST(request: Request) {
   const parsed = validateDocumentInput(body);
   if (!parsed.ok) {
     return NextResponse.json({ error: parsed.error }, { status: 400 });
+  }
+
+  const ctx = await getWorkspaceContext();
+  if (ctx.queryError) {
+    return NextResponse.json(
+      { error: 'Unable to verify workspace membership.' },
+      { status: 500 }
+    );
+  }
+  if (!ctx.workspace) {
+    return NextResponse.json(
+      { error: 'No active workspace membership found.' },
+      { status: 403 }
+    );
   }
 
   const { data, error: insertError } = await supabase
