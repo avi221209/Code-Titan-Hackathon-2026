@@ -6,7 +6,7 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "test": "node --test lib/validators/m1.test.ts",
+    "test": "node --test lib/validators/*.test.*",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
