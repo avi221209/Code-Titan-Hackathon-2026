@@ -1,42 +1,33 @@
 # BrandGuardian — Project State
 
 **Last Updated:** 2026-11-10  
-**Current Milestone:** M1 — Foundation (Auth, Workspace Data, Document Persistence, RLS Proof)  
-**Milestone Status:** CODE + QA ROUND 2 COMPLETE (Tier A Fixed; Live SQL Editor Check `USER-RUN`; Tier B Defects Pending Approval)  
-**Next Milestone:** M2 — Review Engine (Deterministic + AI Checks, Findings, Audit Trail) — *Do not start until Tier B decisions (if any) and `rls_checks.sql` SQL Editor output are confirmed.*
+**Current Milestone:** M2 — Core Review Engine (`POST /api/review`, Findings & Evidence Workspace UI)  
+**Milestone Status:** CODE + STATIC/UNIT/AUTH/UI STRUCTURE VERIFIED (`USER-RUN` pending `SUPABASE_SERVICE_ROLE_KEY` & `AI_SERVICE_TOKEN` for live DB/Groq E2E)  
+**Next Milestone:** M3 — Human Workflow (`POST /api/suggestions/[id]/decision`, Decision Actions, Final-Text Preview, Audit History)
 
 ---
 
-## Reality Check (Empirically Verified After Tier A Fixes)
+## Reality Check (M2 Empirical Verification)
 
-- **Repository & Branch:** `E:/Plugins/Get Shit Done/Code Titan 2026/brandguardian` on `main` (`1fc322b` M0 -> `e94ee70` M1 -> Tier A fixes `[DEF-01]`, `[DEF-02]`, `[DEF-03]`, `[DEF-05]`, `[DEF-07]`, `[DEF-04]`, `[DEF-06]`; `chunks-tmp` untouched).
-- **Web (`web/`):**
-  - `pnpm --dir web typecheck` (`tsc --noEmit`) & `--noUnusedLocals --noUnusedParameters`: **exit 0**.
-  - `pnpm --dir web test` (`lib/validators/*.test.*`): **6/6 passed**.
-  - `pnpm --dir web build` (`next build`): **exit 0** (`102 kB` shared First Load JS, routes `103–118 kB`, Middleware `94.5 kB`).
-  - Hardened security headers active (`poweredByHeader: false`, `Content-Security-Policy`, `Permissions-Policy`, `X-DNS-Prefetch-Control: off`, `nosniff`, `DENY`, `strict-origin-when-cross-origin`); `0` CSP violations across headless Chromium pass.
+- **Repository & Branch:** `E:/Plugins/Get Shit Done/Code Titan 2026/brandguardian` on `main`.
 - **AI Service (`ai-service/`):**
-  - `ai-service/.env.example` sets `LLM_PROVIDER=groq`; `[DEF-08]` moved `require_key` to `Depends(require_key)` on `POST /review` (`3727052`).
-  - `.\ai-service\.venv\Scripts\python.exe -m pytest -q ai-service`: **12 passed in 0.40s**.
-  - Live `GET http://127.0.0.1:8000/health` returns `200` (`provider: "groq"`, `llm_configured: true`, `model: "openai/gpt-oss-20b"`); unauthenticated `POST /review` with `{}` returns `HTTP 401`.
-- **Secret Isolation Proof (`web/` source + `.next/static/*.js`):**
-  - `STATIC_SECRET_HITS=0` in `.next/static/**/*.js`; `0` occurrences of `DEMO_PASSWORD`, `DEMO_EMAIL`, `SUPABASE_SERVICE_ROLE_KEY`, `GROQ_API_KEY`, or `AI_SERVICE_TOKEN` in `'use client'` files or `NEXT_PUBLIC_*` variables.
+  - `ai-service/main.py` untouched (`12 passed in 0.42s` via `.\ai-service\.venv\Scripts\python.exe -m pytest -q ai-service`).
+  - Detached `uvicorn` running on `http://127.0.0.1:8000` (`GET /health` → `200`, `provider: "groq"`, `llm_configured: true`, `model: "openai/gpt-oss-20b"`).
+- **Web (`web/`):**
+  - `pnpm --dir web typecheck` & `--noUnusedLocals --noUnusedParameters`: **exit 0**.
+  - `pnpm --dir web test`: **13/13 passed** (`m1.test.ts` 5 + `review.test.ts` 7 + `security.test.mjs` 1).
+  - `pnpm --dir web build`: **exit 0** (`102 kB` shared First Load JS, `/documents/[id]` `7.5 kB` / `122 kB`, `/api/review` dynamic).
+  - Production server checks on `:3100` (`ai_service_configured: true`, `supabase_configured: true`): `GET /api/review` → `405`, unauthenticated `POST /api/review` → `401`, invalid JSON/UUID → `400`, missing doc UUID → `404`, headless Chromium `/documents/[id]` two-pane UI verified at `1440px` & `375px` (`0` overflow, `0` page errors), missing `SUPABASE_SERVICE_ROLE_KEY`/`AI_SERVICE_TOKEN` returns honest `HTTP 503` inline alert and re-enables `"Run review"`.
+  - Secret grep across `.next/static/**/*.js` and `'use client'` modules: **0 hits**.
 
-## M1 Acceptance Matrix
+## M2 Acceptance Matrix
 
 | # | Criterion | Status | Evidence / Notes |
 | --- | --- | --- | --- |
-| 1 | `pnpm build` & `tsc --noEmit` pass; `ai-service` tests pass | **PASS** | `tsc --noEmit` (`0`), `pnpm test` (`6/6`), `next build` (`0`), `pytest` (`12/12` including `[DEF-08]`) |
-| 2 | Incognito `/dashboard` -> `/login`, demo sign-in -> real `/dashboard` | **PASS** | Verified in headless Chromium: incognito `/dashboard` redirected to `/login`; `"Enter demo workspace"` landed on `/dashboard` showing `Asterra (demo)`, `Admin`, `5` rules / `5` facts / `2` terminology, and saved drafts |
-| 3 | `/knowledge` renders Asterra Rules, Facts & Terminology from DB | **PASS** | Verified Rules (`5`), Facts (`5`), and Terminology (`2`) tabs via keyboard navigation and real Supabase RLS queries |
-| 4 | Document created from Asterra sample persists across hard refresh | **PASS** | Verified `"Load Asterra sample"` (`163 / 6,000`) -> `POST /api/documents` (`201`) -> `/documents/e7e1021f-3e61-4d65-91e0-32a8d11b7b9c` + hard reload retaining title, content, `"Review engine arrives in M2"`, and `0` Run review buttons |
-| 5 | `DEMO_PASSWORD` & `SUPABASE_SERVICE_ROLE_KEY` absent from client / `NEXT_PUBLIC_` | **PASS** | Verified across `web/` source, `NEXT_PUBLIC_*` grep, and `.next/static/**/*.js` (`0` hits) |
-| 6 | `supabase/tests/rls_checks.sql` ready & verified | **USER-RUN** | `0002_rls_hardening.sql` & `rls_checks.sql` (`cases a–g` + `Block 2` `pg_policies`) committed (`1db160f`); awaiting user execution in Supabase SQL Editor |
-
-## Tier B QA Findings Status
-
-- `[DEF-08]` (`P2`): **FIXED (`3727052`)** — `Depends(require_key)` on `POST /review` (`12 passed`, `{} -> 401`).
-- `[DEF-10]` (`P1`): **SQL COMMITTED (`1db160f`) / PENDING USER-RUN** — `supabase/migrations/0002_rls_hardening.sql` & `rls_checks.sql` cases `(f)`–`(g)` ready to run in Supabase SQL Editor.
-- `[DEF-09]` (`P2`, **Deferred**): Missing ESLint/`lint` script in `web/package.json` and 4 transitive `next > postcss <= 8.5.22` audit advisories.
-- `[DEF-11]` (`P1`, **Deferred**): Production `/dashboard` 5x latency re-measured `[4224.2, 1559.9, 1309.2, 1613.7, 1399.3]` ms (`median 1559.9 ms`, `max 4224.2 ms`) from repeated remote `auth.getUser()` RTT across `web/middleware.ts` and `web/lib/workspace.ts`.
-- `[DEF-12]` (`P2`, **Deferred**): Route `loading.tsx` boundaries in `web/app/(app)/loading.tsx`, `documents/[id]/loading.tsx`, and `documents/[id]/history/loading.tsx` stream `HTTP 200` soft-404 status headers before `notFound()` renders `"Page not found"` in DOM.
+| 1 | Seeded Asterra copy saves expected findings (`consumers`, `founded in 2019`, `cheapest and best`, `guarantee 300%...`) | **USER-RUN** | Code/validator/UI implemented; blocked on live DB write because `SUPABASE_SERVICE_ROLE_KEY` (`web/.env.local`) & `AI_SERVICE_TOKEN` (`ai-service/.env`, `web/.env.local`) are unset |
+| 2 | Deterministic findings show `verified`; AI findings without valid `rule_id` show `unverified` | **USER-RUN** | Enforced in `ai-service/main.py` (`pytest` 12/12) + `validateReviewResponse` + `VerificationBadge`; live DB E2E blocked on missing server secrets |
+| 3 | FastAPI unreachable: run marks `failed` with clear error, `0` findings, no stuck `running` | **USER-RUN** | `markRunFailed` rollback implemented in `web/app/api/review/route.ts`; `:3101` `AI_SERVICE_URL=http://127.0.0.1:9` returned `/api/health` `200`, DB-write test blocked on `SUPABASE_SERVICE_ROLE_KEY` |
+| 4 | Wrong `GROQ_API_KEY`: deterministic findings complete + honest `AiStatusBanner` | **USER-RUN** | Requires user temporarily testing an invalid `GROQ_API_KEY` after setting server secrets |
+| 5 | Prompt injection leaves deterministic findings unchanged | **USER-RUN** | Guaranteed by `ai-service` (`pytest` tag-breakout + deterministic path); live DB run awaits server secrets |
+| 6 | Hard refresh retains findings; concurrent double-click creates one run (`409` guard) | **USER-RUN** | Client `inFlightRef` lock + `90s` `classifyRunningReviews` (`4/4` unit tests) + server post-insert tie-break implemented; live DB run awaits server secrets |
+| 7 | `pnpm build`, `tsc --noEmit`, `pnpm test` (`13/13`), `pytest` (`12/12`), secret grep clean | **PASS** | Verified empirically (`0` static/client secret hits, all builds and unit suites exit `0`) |

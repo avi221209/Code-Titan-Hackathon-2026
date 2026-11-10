@@ -1,65 +1,57 @@
-# Verification & Test Evidence (M0 + M1 + QA Round 2)
+# Verification & Test Evidence (M0 + M1 + QA Round 2 + M2)
 
-All outputs below were captured empirically inside `E:\Plugins\Get Shit Done\Code Titan 2026\brandguardian` after Tier A QA fixes (`[DEF-01]`–`[DEF-07]`). Items marked **USER-RUN** require human execution with user-held credentials or the Supabase SQL Editor.
+All outputs below were captured empirically inside `E:\Plugins\Get Shit Done\Code Titan 2026\brandguardian` without reading or printing any `.env` files. Items marked **USER-RUN** require user-held credentials (`SUPABASE_SERVICE_ROLE_KEY`, `AI_SERVICE_TOKEN`, `GROQ_API_KEY`) or manual SQL Editor execution.
 
 ## 1. Python AI Service (`pytest`)
 
 Command: `.\ai-service\.venv\Scripts\python.exe -m pytest -q ai-service`
 
 ```text
-...........                                                              [100%]
-11 passed in 0.39s
+............                                                             [100%]
+12 passed, 1 warning in 0.42s
 ```
 
-Live HTTP checks against `http://127.0.0.1:8000`:
-- `GET /health` → `HTTP 200` `{"status":"ok","provider":"groq","llm_configured":true,"model":"openai/gpt-oss-20b"}` (`1.7 ms`)
-- `GET /` → `HTTP 404` `{"detail":"Not Found"}`
-- `POST /review` (valid body, missing or wrong `x-api-key`) → `HTTP 401`
-- `POST /review` (`{}` empty body, no key) → `HTTP 422` (logged as Tier B `[DEF-08]`)
-- **USER-RUN:** Live Groq `POST http://127.0.0.1:8000/review` with server `.env` `AI_SERVICE_TOKEN`
+Live HTTP checks against detached `uvicorn main:app --host 127.0.0.1 --port 8000 --env-file .env`:
+- `GET http://127.0.0.1:8000/health` → `HTTP 200` `{"status":"ok","provider":"groq","llm_configured":true,"model":"openai/gpt-oss-20b"}`
+- `POST /review` without valid `x-api-key` → covered by `pytest` (`test_review_rejects_unauthenticated_empty_body_with_401` → `HTTP 401`)
 
 ## 2. TypeScript, Unit Tests & Production Build (`web/`)
 
 Commands executed in `web/`:
 - `pnpm typecheck` (`tsc --noEmit`) → **Exit code `0`**
 - `pnpm exec tsc --noEmit --noUnusedLocals --noUnusedParameters` → **Exit code `0`**
-- `pnpm test` (`node --test lib/validators/*.test.*`) → **6/6 passed** (`m1.test.ts`: route guards, login validation, NUL-byte/array/6,000-char document validation, UUID guard; `security.test.mjs`: `poweredByHeader: false` + hardened headers)
-- `pnpm build` (`next build`) → **Exit code `0`** (`102 kB` First Load JS shared by all, routes `103–118 kB`, Middleware `94.5 kB`)
+- `pnpm test` (`node --test lib/validators/*.test.*`) → **13/13 passed**:
+  - `m1.test.ts` (`5/5`): route guards, login validation, NUL-byte/array/6,000-char document validation, UUID guard
+  - `review.test.ts` (`7/7`): `validateReviewRequestBody`, `validateReviewResponse` (clamped confidence, severity+offset sort, invalid doc/enum/offset rejection), `classifyRunningReviews` (`90s` cutoff), `resolveHighlightSpan` (surrogate-pair/emoji Python vs JS UTF-16 offset fallback to `indexOf`), `buildHighlightedDocumentSegments` (exact reconstruction + non-overlapping highlights)
+  - `security.test.mjs` (`1/1`): `poweredByHeader: false` + hardened headers
+- `pnpm build` (`next build`) → **Exit code `0`** (`102 kB` shared JS, `/documents/[id]` `7.5 kB` / `122 kB` First Load JS, `/api/review` dynamic `ƒ`)
 
-## 3. HTTP Route, API & Header Verification (`next start -p 3000`)
+## 3. HTTP Route, API & UI Verification (`next start -p 3100` and `:3101`)
 
-| Endpoint / Route | Auth / Input Case | Observed Result |
+Verified against fresh production build:
+
+| Endpoint / Flow | Check / Condition | Observed Result |
 | --- | --- | --- |
-| `/` | Public GET | `HTTP 200`, `h1Count=1`, updated M1 description, unique `<title>` |
-| `/login` | Public GET / Signed-in GET | `HTTP 200` anon; `HTTP 307 -> /dashboard` when signed in |
-| `/dashboard`, `/knowledge`, `/documents/new`, `/documents/<uuid>`, `/documents/<uuid>/history` | Unauthenticated GET | All return `HTTP 307`, `Location: /login` |
-| `/api/health` | `GET` / `POST` | `GET` `HTTP 200` (`supabase_configured: true`); `POST` `HTTP 405` |
-| `/api/documents` | Unauthenticated `GET` / `POST` / `PUT` | `GET`/`POST` `HTTP 401`; `PUT` `HTTP 405` |
-| `/api/documents` | Authenticated `GET` | `HTTP 200` (`count=3`, `902.1 ms`) |
-| `/api/documents` | Authenticated `POST` invalid inputs (`{bad json`, `[]`, NUL byte `\u0000`, `6001` chars) | All return `HTTP 400` (`254–319 ms`, validated before DB membership query) |
-| `/api/documents` + `/documents/[id]` | Authenticated Asterra sample submission + hard reload | Redirected to `/documents/e7e1021f-3e61-4d65-91e0-32a8d11b7b9c`, persisted across reload (`"Review engine arrives in M2"`, `0` Review buttons) |
-| `/api/review`, `/api/suggestions/<uuid>/decision` | `POST` | Intentional stub `HTTP 501` `{"error":"not_implemented"}` |
-| `/nonexistent-route-qa` | Authenticated GET | `HTTP 404`, `<h1>Page not found</h1>` |
-| `/documents/not-a-uuid/history` | Authenticated GET | Renders `<h1>Page not found</h1>` via `notFound()` (`HTTP 200` stream under parent `loading.tsx`, logged as Tier B `[DEF-12]`) |
+| `http://127.0.0.1:3100/api/health` | `GET` | `HTTP 200` `{"status":"ok","service":"brandguardian-web","supabase_configured":true,"ai_service_configured":true}` |
+| `http://127.0.0.1:3101/api/health` (`AI_SERVICE_URL=http://127.0.0.1:9`) | `GET` | `HTTP 200` `{"status":"ok","service":"brandguardian-web","supabase_configured":true,"ai_service_configured":true}` |
+| `/api/review` | `GET` (unsupported method) | `HTTP 405` |
+| `/api/review` | Unauthenticated `POST` | `HTTP 401` `{"error":"Unauthorized"}` |
+| `/api/review` | Authenticated `POST` invalid JSON `{not-json` | `HTTP 400` `{"error":"Invalid JSON request body."}` |
+| `/api/review` | Authenticated `POST` invalid UUID `documentId` | `HTTP 400` `{"error":"A valid documentId UUID is required."}` |
+| `/api/review` | Authenticated `POST` nonexistent UUID | `HTTP 404` `{"error":"Document not found."}` |
+| `/documents/[id]` (`Asterra Flow Launch Draft`) | Headless Chromium (`1440px` & `375px`) | `<h1>` renders, `"Run review"`, `"Document Copy"`, `"Findings"` headings visible, `0` horizontal overflow (`1440` & `375`), `0` page errors, navigates cleanly to `/documents/[id]/history` |
+| `/documents/[id]` (`"Run review"` click with missing `SUPABASE_SERVICE_ROLE_KEY` / `AI_SERVICE_TOKEN`) | Authenticated UI click | Returns `HTTP 503`, shows honest inline `role="alert"` (`"Review engine environment variables are not configured on the server yet."`), re-enables `"Run review"` button, creates `0` fake findings |
 
-Verified HTTP Response Headers (`/`, `/login`, `/api/health`):
-- `X-Powered-By`: absent (`null`)
-- `Content-Security-Policy`: `default-src 'self'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'; object-src 'none'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self' data:; connect-src 'self' https://*.supabase.co wss://*.supabase.co`
-- `Permissions-Policy`: `camera=(), microphone=(), geolocation=()`
-- `X-DNS-Prefetch-Control`: `off`
-- `X-Content-Type-Options`: `nosniff`, `X-Frame-Options`: `DENY`, `Referrer-Policy`: `strict-origin-when-cross-origin`
+## 4. Security & Secret Isolation Checks
 
-## 4. Headless Chromium E2E & Accessibility (`1440px` & `375px`)
+- `.next/static/**/*.js` scan for `SUPABASE_SERVICE_ROLE_KEY`, `DEMO_PASSWORD`, `GROQ_API_KEY`, `AI_SERVICE_TOKEN` → **0 hits**.
+- `'use client'` source scan for `SUPABASE_SERVICE_ROLE_KEY`, `DEMO_PASSWORD`, `DEMO_EMAIL`, `GROQ_API_KEY`, `AI_SERVICE_TOKEN` → **0 hits**.
 
-- Incognito `/dashboard` -> `/login` -> `"Enter demo workspace"` -> `/dashboard` rendering real Asterra counts (`5` rules / `5` facts / `2` terminology) and saved drafts (`Admin` role badge).
-- `/knowledge` keyboard tabbing (`ArrowRight`, `ArrowRight`, `Home`) verified Rules (`5`), Facts (`5`, `2021`), and Terminology (`2`, `customers`).
-- `/documents/new` client validation + `"Load Asterra sample"` (`163 / 6,000`) + `"Save document"` -> `/documents/[id]` + hard refresh persistence.
-- `/documents/[id]/history` renders `<h1>Document Audit History</h1>`, `"Back to document"` link, and M3 placeholder.
-- **Happy-flow errors:** `0` console errors, `0` uncaught `pageerror`, `0` CSP `securitypolicyviolation` events.
-- **Accessibility:** Every audited view renders `<html lang="en">`, 1 `<main>`, 1 `<h1>`, unique page `<title>`, `0` unlabeled visible inputs, `0` unnamed buttons/links, `0` horizontal overflow on `1440px` and `375px`, WCAG AA contrast `>= 4.5:1`.
+## 5. Pending `USER-RUN` / Blocked Checks (Missing Server Env Secrets)
 
-## 5. Security, Secrets & Git Isolation Checks
-
-- `git check-ignore -v .env web/.env web/.env.local ai-service/.env ai-service/.env.local`: all matched by `.gitignore`.
-- Static bundle & `'use client'` scan: `STATIC_SECRET_HITS=0` across `.next/static/**/*.js`, `0` secret identifiers in `'use client'` files, `0` non-allowlisted `NEXT_PUBLIC_*` vars, `0` tracked secrets in `git log -p`.
-- **USER-RUN:** `supabase/tests/rls_checks.sql` (Block 1 cases `a`–`e` + Block 2 `pg_policies` summary) to be executed in Supabase SQL Editor.
+Because boolean env checks detected `SUPABASE_SERVICE_ROLE_KEY` missing in `web/.env.local` and `AI_SERVICE_TOKEN` missing in both `ai-service/.env` and `web/.env.local` (values never read/printed), live end-to-end DB review persistence tests could not execute against Supabase/FastAPI and remain **USER-RUN**:
+1. Set `SUPABASE_SERVICE_ROLE_KEY` in `web/.env.local`, and set a shared `AI_SERVICE_TOKEN` in both `ai-service/.env` and `web/.env.local` (matching each other), then restart `ai-service` and `web`.
+2. Open seeded Asterra draft on `/documents/[id]` → click **Run review** → verify 4 findings (`consumers`, `founded in 2019` citing `2021` fact, `cheapest and best`, `guarantee 300% revenue growth...`), `Verified`/`Unverified` badges, hard refresh persistence, and concurrent `409` on double-submit.
+3. Run FastAPI-unreachable check (`AI_SERVICE_URL=http://127.0.0.1:9`) once `SUPABASE_SERVICE_ROLE_KEY` is present → confirm `HTTP 502`, `'failed'` `review_runs` row, and `0` findings.
+4. Prompt-injection document test + wrong-`GROQ_API_KEY` test (set invalid `GROQ_API_KEY` on `ai-service`, verify `ai_status: "unavailable"`, deterministic findings saved cleanly, and [`AiStatusBanner`](file:///E:/Plugins/Get%20Shit%20Done/Code%20Titan%202026/brandguardian/web/components/ai-status-banner.tsx) displays unavailable notice; restore valid `GROQ_API_KEY`).
+5. `supabase/tests/rls_checks.sql` & `supabase/migrations/0002_rls_hardening.sql` in Supabase SQL Editor.
