@@ -1,6 +1,6 @@
 # BrandGuardian — Defect Log (QA-Fix Loop)
 
-**Last Updated:** 2026-11-10T05:15:00+05:30  
+**Last Updated:** 2026-11-10T06:26:00+05:30  
 **Severity Rules:**
 - **P0:** Blocks core workflow or introduces security vulnerability
 - **P1:** Breaks an existing feature or acceptance criterion / security hardening / WCAG violation
@@ -64,6 +64,13 @@
 - **Root Cause:** JSON parsing/validation executed after `getWorkspaceContext()`, and `validateDocumentInput` lacked a `\u0000` guard.
 - **Fix Applied:** Added RED->GREEN unit tests in `web/lib/validators/m1.test.ts` for array payloads and NUL bytes, added `\u0000` check in `web/lib/validators/m1.ts`, and moved JSON parsing + `validateDocumentInput` before `getWorkspaceContext()` in `web/app/api/documents/route.ts`.
 - **After Evidence (Round 2):** `{bad json`, `[]`, `\u0000` NUL byte, and `6001` chars all return `HTTP 400` in `254.2–319.3 ms` (down from `710–1324 ms` due to eliminated pre-validation DB query).
+
+### `[DEF-13]` — `README.md` and `docs/limitations.md` still reflected M1 status after M2/M3 shipped
+- **Severity:** `P2` | **Tier:** `Tier A` | **Layer:** L9 | **Status:** `FIXED (Phase D QA Round)`
+- **Before Evidence:** After commits `ea1ecdb` (M2) and `77b92e4` (M3), `README.md` still stated `"Current Milestone: M1"` / `"/api/review returns 501"`, and `docs/limitations.md` listed `M2–M3 Pending` and `[DEF-08]` as unfixed.
+- **Root Cause:** Documentation updates during M2/M3 updated `.planning/STATE.md` and `docs/test-evidence.md`, missing `README.md` and `docs/limitations.md`.
+- **Fix Applied:** Updated `README.md` and `docs/limitations.md` to document implemented M0–M3 routes/APIs, SQL migrations `0002` & `0003` (`USER-RUN`), missing server secret requirements (`SUPABASE_SERVICE_ROLE_KEY`, `AI_SERVICE_TOKEN`), fixed `[DEF-08]`, and open Tier B items (`[DEF-09]`, `[DEF-11]`, `[DEF-12]`).
+- **After Evidence:** All internal doc links and claims verified aligned with M3 code, build, and open Tier B register.
 
 ---
 

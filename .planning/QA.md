@@ -155,6 +155,23 @@
 | --- | --- | --- |
 | **M0** | Next.js + TS + Tailwind + tokens + Supabase client boundaries + `ai-service/` verbatim + gitignored `.env` | **PASS** (`1fc322b`) |
 | **M1** | `0001_schema.sql` + `seed.sql` + `@supabase/ssr` demo & email login + middleware redirects + RLS workspace & knowledge UI + `/documents/new` (`<= 6000`) + `/documents/[id]` read-only + `rls_checks.sql` | **PASS (Web E2E + Build + Static)** / **USER-RUN (SQL Editor `0002_rls_hardening.sql` & `rls_checks.sql`)** — `[DEF-01]`–`[DEF-08]` fixed; `[DEF-10]` SQL committed; `[DEF-09]`, `[DEF-11]`, `[DEF-12]` deferred |
-| **M2** | Core Review Engine (`POST /api/review`, findings/suggestions persistence, review UI pane, AI banner) | **N/A** (Not started; `/api/review` returns `501`) |
-| **M3** | Human workflow (`POST /api/suggestions/[id]/decision`, diff & Accept/Edit/Reject/Dismiss, `/documents/[id]/history` audit timeline) | **N/A** (Not started; `/api/suggestions/[id]/decision` returns `501`) |
+| **M2** | Core Review Engine (`POST /api/review`, findings/suggestions persistence, review UI pane, AI banner) | **PASS (Build/Static/Unit/Auth/UI)** / **USER-RUN (Live DB Review & Groq E2E)** — `ea1ecdb` (awaiting `SUPABASE_SERVICE_ROLE_KEY` & `AI_SERVICE_TOKEN`) |
+| **M3** | Human workflow (`POST /api/suggestions/[id]/decision`, diff & Accept/Edit/Reject/Dismiss, `/documents/[id]/history` audit timeline) | **PASS (Build/Static/Unit/Auth/UI)** / **USER-RUN (Live Decision Persistence, `409`, `decision_rls.sql`, `0003`)** — `77b92e4` |
 | **M4–M6** | Deployment, analytics, final pre-demo gate | **N/A** (Not started) |
+
+---
+
+## Phase D: Post-M3 QA Round (2026-11-10T06:25+05:30)
+
+| Check | Status | Exact Command & Observed Output |
+| --- | --- | --- |
+| TypeScript (`tsc --noEmit` + unused) | **PASS** | `pnpm --dir web typecheck` & `tsc --noEmit --noUnusedLocals --noUnusedParameters` → exit `0` |
+| Web Unit Tests (`node:test`) | **PASS** | `pnpm --dir web test` → `tests 17 / pass 17 / fail 0` (`m1` 5 + `review` 7 + `decision` 4 + `security` 1) |
+| Production Build (`next build`) | **PASS** | `pnpm --dir web build` → exit `0` (`102 kB` shared, `/documents/[id]` `10.5 kB` / `125 kB`, `/api/review` & `/api/suggestions/[id]/decision` dynamic) |
+| AI Service Tests (`pytest`) | **PASS** | `.\ai-service\.venv\Scripts\python.exe -m pytest -q ai-service` → `12 passed, 1 warning in 0.39s` |
+| Contract Check 1 (`finding.ts` ↔ `ai-service/main.py`) | **PASS** | Exact 1:1 field match on `Finding` (12 fields) and `ReviewResponse` (7 fields), plus all literal unions (`Category`, `Severity`, `VerificationStatus`, `FindingOrigin`, `AiStatus`) |
+| Contract Check 2 (`web/` queries ↔ `0001_schema.sql`) | **PASS** | Audited `104` `.from()` / `.select()` / `.insert()` / `.update()` / `.eq()` / `.in()` / `.order()` clauses across `web/app/` and `web/lib/` → `errors=[]` |
+| Secret Scan (tracked files & `.next/static`) | **PASS** | `tracked_non_example_env=[]`, `tracked_secret_hits=[]`, `static_secret_hits=[]` |
+| `console.*` / `TODO` / `error.message` Scan | **PASS** | `git grep -n -E "console\.(log\|warn\|error\|debug\|info)\|TODO\|FIXME\|XXX\|HACK\|error\.message" web ai-service` → exit `1` (`0` hits) |
+| Dependency Audit (`pnpm audit --json`) | **OPEN (Tier B)** | `{'info': 0, 'low': 0, 'moderate': 2, 'high': 2, 'critical': 0}` (existing `[DEF-09]` documented in `.planning/DECISIONS_NEEDED.md`) |
+| Stale M1 Documentation (`[DEF-13]`) | **FIXED (Tier A)** | Updated `README.md` & `docs/limitations.md` to reflect M0–M3 completion, fixed `[DEF-08]`/`[DEF-10]`, and current `USER-RUN` / Tier B state |

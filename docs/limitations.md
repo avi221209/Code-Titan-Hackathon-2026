@@ -1,23 +1,24 @@
 # Known Limitations
 
-## Current Milestone State (M0 + M1 Complete; M2–M3 Pending)
+## Current Milestone State (M0–M3 Implemented; Live DB E2E & M4+ Pending)
 
-- **Review & Decision Workflows Not Yet Connected (`M2` / `M3`):** `POST /api/review` and `POST /api/suggestions/[id]/decision` intentionally return `HTTP 501 {"error":"not_implemented"}`. `/documents/[id]` renders persisted draft copy in read-only mode with `"Review engine arrives in M2"`, and `/documents/[id]/history` renders `"Coming in M3"`.
-- **SQL & Live Groq Verification Are Human-Executed (`USER-RUN`):** `supabase/tests/rls_checks.sql` (cases `a`–`e` + `pg_policies` summary) must be run directly in the user's Supabase SQL Editor, and live Groq end-to-end inference via `POST http://127.0.0.1:8000/review` requires the user-held `AI_SERVICE_TOKEN` inside `ai-service/.env`.
-- **No `/documents` Index Route:** M1 exposes `/dashboard`, `/knowledge`, `/documents/new`, `/documents/[id]`, and `/documents/[id]/history`; no `/documents` index page exists (`GET /documents` returns `404` when authenticated, `307 -> /login` when unauthenticated).
+- **Live Review & Decision DB Writes Require Server Secrets (`USER-RUN`):** `POST /api/review` and `POST /api/suggestions/[id]/decision` require `SUPABASE_SERVICE_ROLE_KEY` (`web/.env.local`) and a matching `AI_SERVICE_TOKEN` in both `ai-service/.env` and `web/.env.local`. Until those secrets are configured by the user, `POST /api/review` honestly refuses with `HTTP 503` (creating `0` fake findings), and end-to-end DB persistence checks for M2/M3 remain `USER-RUN`.
+- **SQL Migrations `0002` & `0003` and SQL RLS Tests Are Human-Executed (`USER-RUN`):** `supabase/migrations/0002_rls_hardening.sql` (`[DEF-10]`), `supabase/tests/rls_checks.sql` (`cases a–g`), `supabase/tests/decision_rls.sql` (`cases a–d`), and `supabase/migrations/0003_audit_server_only.sql` (apply **only after a live decision test passes**) are committed in the repository and await manual execution in the Supabase SQL Editor.
+- **No `/documents` Index Route or Document Editing UI:** Exposes `/dashboard`, `/knowledge`, `/documents/new`, `/documents/[id]`, and `/documents/[id]/history`; no `/documents` index route exists, and `"Preview final text"` is strictly read-only + clipboard copy without mutating the stored draft.
+- **M4+ Features Not Built:** Analytics dashboards and cloud deployment automation belong to later milestones.
 
 ## Open QA Findings (Tier B — Awaiting Explicit Approval)
 
-- **SSR Route Latency Over Remote Supabase Auth (`[DEF-11]`):** Protected SSR navigations to `/dashboard` currently perform remote `supabase.auth.getUser()` validation in both `web/middleware.ts` and `web/lib/workspace.ts`, yielding `2861–4145 ms` full-page loads in local production tests (`median 3372.1 ms`) vs `466–902 ms` on `GET /api/documents`.
-- **Streaming `loading.tsx` Soft-404 Status (`[DEF-12]`):** Adding `loading.tsx` boundaries on parent `(app)` and `[id]` dynamic routes causes Next.js to stream `HTTP 200` headers before `notFound()` renders `"Page not found"` in DOM on `/documents/not-a-uuid` and `/documents/not-a-uuid/history`.
-- **`documents_update` RLS & Indexes (`[DEF-10]`):** While M1 exposes no document `UPDATE` endpoint/UI, `supabase/migrations/0001_schema.sql` `documents_update` `with check` does not lock immutable columns (`workspace_id`, `created_by`), grants broad `DELETE` privileges, and leaves several RLS predicate columns unindexed.
-- **FastAPI Schema Validation Before Auth (`[DEF-08]`):** `ai-service/main.py` checks `x-api-key` inside the `POST /review` handler body rather than `Depends()`, returning `422` instead of `401` when `{}` is sent without a key.
 - **ESLint & Transitive `postcss` Advisories (`[DEF-09]`):** No `eslint` script is configured in `web/package.json`, and `pnpm audit` reports 4 transitive advisories (`2 high`, `2 moderate`) in `next > postcss <= 8.5.22`.
+- **SSR Route Latency Over Remote Supabase Auth (`[DEF-11]`):** Protected SSR navigations to `/dashboard` perform remote `supabase.auth.getUser()` validation in both `web/middleware.ts` and `web/lib/workspace.ts`, measured at `[4224.2, 1559.9, 1309.2, 1613.7, 1399.3] ms` (`median 1559.9 ms`, cold max `4224.2 ms`) against a local `next start` build.
+- **Streaming `loading.tsx` Soft-404 Status (`[DEF-12]`):** `loading.tsx` boundaries covering parent `(app)` and `[id]` dynamic segments cause Next.js to stream `HTTP 200` headers before `notFound()` renders `"Page not found"` in DOM on invalid/missing document UUIDs.
 
-## Architectural & Engine Limitations (From Pack Design)
+*(Resolved Tier B from earlier rounds: `[DEF-08]` FastAPI `Depends(require_key)` fixed in `3727052`; `[DEF-10]` SQL `0002_rls_hardening.sql` committed in `1db160f`, pending SQL Editor.)*
+
+## Architectural & Engine Limitations
 
 - **Deterministic Fact Pattern Scope:** Regex fact matching (`approved_facts.match_pattern`) only catches facts phrased in structures the pattern expects; it is not open-ended general fact verification.
 - **Broad Promotional Rule Patterns:** Seeded claim rules (e.g., matching `"best"` or `"guarantee"`) can trigger false positives on benign uses; human review remains required.
-- **Unicode Offset Divergence:** Python string offsets (`start_offset`, `end_offset`) count Unicode code points, whereas JavaScript strings index UTF-16 code units. Frontend highlighting (M2) must verify `text.slice(start, end) === matched_text` and fall back to `indexOf` if needed.
+- **Unicode Offset Divergence:** Python string offsets (`start_offset`, `end_offset`) count Unicode code points, whereas JavaScript strings index UTF-16 code units. Both highlighting (`resolveHighlightSpan`) and final-text preview (`applyAcceptedEditsToDocument`) verify exact slice equality and fall back to `indexOf` on UTF-16 surrogate-pair drift (e.g. emojis), leaving unmatched spans unhighlighted rather than corrupting text.
 - **Character Limit:** Submitted content is capped at 6,000 characters (`MAX_DOCUMENT_CONTENT_LENGTH = 6000`).
-- **Small Model Tone Limitations:** Best-effort tone checks via local 3B models (`qwen2.5:3b`) can miss nuance; findings from LLM origin remain marked `unverified` unless linked to a valid supplied `source_id`.
+- **Model Nuance & Grounding Guardrail:** Best-effort LLM tone/claim findings (`origin: "llm"`) remain marked `unverified` unless linked to a supplied workspace `rule_id`, and hallucinated quotes not present in the document are discarded before persistence.
