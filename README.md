@@ -1,118 +1,134 @@
 # BrandGuardian
 
-Evidence-backed brand compliance review workspace built with Next.js App Router, TypeScript, Tailwind CSS, Supabase (Auth, PostgreSQL, RLS), and a Python FastAPI AI verification service.
+Evidence-backed brand compliance review workspace built for **CodeTitans India 2026 (Round 2)** by **Team Stark**.
 
-> **Current State:** **M0–M3 Implemented (`M4+` deployment/analytics not built yet).**  
-> Includes Supabase Auth + RLS workspace isolation (M1), deterministic + Groq review execution via `POST /api/review` and two-pane findings workspace (M2), and human review decisions (`Accept` / `Edit` / `Reject` / `Dismiss`), High/Critical evidence-inspection gating, read-only `"Preview final text"` + Copy, and `/documents/[id]/history` chronological audit trail (M3). See `.planning/DECISIONS_NEEDED.md` and `docs/test-evidence.md` for missing server secrets (`SUPABASE_SERVICE_ROLE_KEY`, `AI_SERVICE_TOKEN`) required for live DB writes (`USER-RUN`).
+BrandGuardian checks marketing and product copy against workspace-approved guidelines, facts, and controlled terminology, separates deterministic checks from best-effort LLM suggestions with explicit verification labels, and enforces human review authority through PostgreSQL Row-Level Security (RLS) and chronological audit logging.
+
+> **Current Status:** M0–M3 code, unit/Python tests, SQL hardening (`0002`), and deployment prep are implemented and verified. Live cloud deployment (`<WEB_URL>`, `<AI_URL>`), live end-to-end Groq/Supabase DB runs, `decision_rls.sql`, and post-test `0003_audit_server_only.sql` are **`USER-RUN`** (see [`docs/deployment.md`](docs/deployment.md) and [`docs/test-evidence.md`](docs/test-evidence.md)).
 
 ---
 
-## Monorepo Architecture
+## Hosted URLs (`USER-RUN` Placeholders)
+
+- **Web App (`web/` on Vercel):** `<WEB_URL>` *(fill after Vercel deployment — [`docs/deployment.md`](docs/deployment.md))*
+- **AI Microservice (`ai-service/` on Render/Railway):** `<AI_URL>` *(fill after Docker deployment — [`docs/deployment.md`](docs/deployment.md))*
+
+> Zero laptop dependency applies **only after `USER-RUN` deployment and incognito verification** on `<WEB_URL>` and `<AI_URL>`.
+
+---
+
+## Demo Sign-In & 3-Minute Judge Journey
+
+All workspace rules, facts, terminology, and sample copy belong to the synthetic fictional brand **Asterra**. No real customer or confidential data is included.
+
+### Quick Sign-In
+1. Open `<WEB_URL>/login` (or click **Sign in** from `/`).
+2. Click **"Enter demo workspace"** (one-click server action using server-only `DEMO_EMAIL` / `DEMO_PASSWORD` credentials — zero secrets are shipped to the browser).
+   *(Alternatively, sign in via the email/password form with Supabase Auth credentials.)*
+
+### 3-Minute Judge Walkthrough (Verified UI Steps Only)
+1. **Inspect Workspace & Knowledge (`/dashboard` -> `/knowledge`):**
+   - On `/dashboard`, confirm the **Asterra (demo)** workspace header, role badge (`Role: admin`), **Knowledge Ledger** (`5` Guideline rules, `5` Approved facts, `2` Terminology entries), and **Recent Documents**.
+   - Click **View knowledge** (`/knowledge`) to inspect the read-only **Rules**, **Facts**, and **Terminology** tabs with source records and status badges (`Approved`, `Active`).
+2. **Create the Synthetic Draft (`/documents/new`):**
+   - Click **Review new content** (or **New Review** in the navigation bar).
+   - Click **"Load Asterra sample"** to populate `"Asterra Flow Launch Draft"` (`163 / 6,000` chars).
+   - Click **"Save document"** to persist the draft via `POST /api/documents` and open `/documents/[id]`.
+3. **Run Compliance Review (`/documents/[id]`):**
+   - Click **"Run review"** (calls Next.js BFF `POST /api/review` -> FastAPI `POST /review`).
+   - Observe the status banner (`AI review completed` with `openai/gpt-oss-20b`, or an explicit degraded banner such as `AI unavailable` / `AI output rejected` without hiding deterministic results).
+   - Click highlights in **Document Copy** or navigate **Findings** using keyboard shortcuts `j` / `k`. Confirm findings include:
+     - `consumers` (`terminology`, `medium`, **Verified**, suggested revision `customers`)
+     - `founded in 2019` (`fact`, `high`, **Verified**, cites `"Asterra was founded in 2021."`)
+     - `cheapest and best` (`unsupported_claim`, `high`, **Verified**)
+     - `guarantee 300% revenue growth in just 7 days` (`unsupported_claim`, `critical`, **Verified**)
+   - Confirm each card shows verification status (`Verified` / `Unverified`), `AI-generated` when `origin === "llm"`, and `Confidence: X% (estimate)`.
+4. **Enforce Evidence Gate & Record Human Decisions (`/documents/[id]`):**
+   - On **High** or **Critical** findings, notice **Evidence** starts collapsed and **Accept** stays disabled until you click **Inspect evidence**.
+   - Exercise **Accept**, **Edit** -> **Save edit**, **Reject** *(requires non-blank reason)* -> **Confirm reject**, or **Dismiss**.
+   - Hard-refresh (`Ctrl+Shift+R`) to verify persisted decisions and attribution; once every suggestion in the latest completed run has a decision, the document status badge updates to **Reviewed**.
+5. **Preview Final Copy & Inspect Audit Trail (`/documents/[id]/history`):**
+   - Click **"Preview final text"** to inspect the read-only end-to-start replacement preview (stored draft text remains unchanged), then click **Copy**.
+   - Click **"Audit history"** (`/documents/[id]/history`) to view chronological `review.completed`, `decision.recorded`, and `document.reviewed` audit events in UTC with resolved actor names.
+
+---
+
+## Monorepo Layout
 
 ```text
 brandguardian/
-├── web/                  # Next.js 15 App Router frontend + BFF route handlers
-├── ai-service/           # Python FastAPI deterministic + LLM checker/verifier service
+├── web/                  # Next.js 15 App Router frontend + server BFF route handlers (pnpm)
+├── ai-service/           # Python FastAPI deterministic + LLM checker/verifier microservice + Dockerfile
 ├── supabase/
-│   ├── migrations/       # DDL + RLS (`0001_schema.sql`), hardening (`0002` USER-RUN), audit lock (`0003` USER-RUN post-test)
-│   ├── seed.sql          # Synthetic "Asterra" & "Northwind" workspace seed data
-│   └── tests/            # SQL impersonation checks (`rls_checks.sql`, `decision_rls.sql`)
-├── docs/                 # Architecture, limitations, AI disclosure, and test evidence
-└── .planning/            # State, QA matrix, defect log, decisions needed, autonomous report
+│   ├── migrations/       # 0001_schema.sql, 0002_rls_hardening.sql, 0003_audit_server_only.sql
+│   ├── seed.sql          # Synthetic "Asterra (demo)" & "Northwind (isolation test)" seed
+│   └── tests/            # Manual SQL Editor impersonation scripts (rls_checks.sql, decision_rls.sql)
+├── docs/                 # Deployment, architecture, features, AI disclosure, evidence, limitations, roadmap, team, checklist
+└── .planning/            # QA matrix, defect log, decisions needed, autonomous reports
 ```
 
 ---
 
-## Implemented Routes & APIs (M1–M3)
+## Local Setup & Run
 
-| Surface | Status | Behavior |
-| --- | --- | --- |
-| `/` | Implemented | Public landing page linking to `/login` and `/dashboard` |
-| `/login` | Implemented | Demo workspace button (server-only creds) + email/password login; redirects signed-in users to `/dashboard` |
-| `/dashboard` | Implemented | Real RLS-scoped workspace name, role badge, knowledge counts, recent draft documents |
-| `/knowledge` | Implemented | Read-only tabbed ledger for Rules, Facts, and Terminology via USER RLS client |
-| `/documents/new` | Implemented | Draft editor (`<= 6,000` chars) with `"Load Asterra sample"` and validation |
-| `/documents/[id]` | Implemented | Two-pane copy + findings review workspace (`Run review`, severity/offset sorting, collapsible High/Critical evidence panels, human decision actions, read-only `"Preview final text"` + Copy) |
-| `/documents/[id]/history` | Implemented | Chronological `audit_events` timeline (`review.completed`, `decision.recorded`, `document.reviewed`) with actor resolution and honest empty state |
-| `GET /api/health` | Implemented | Returns runtime configuration booleans (`200`) |
-| `GET / POST /api/documents` | Implemented | Authenticated USER-client workspace read/insert (`200` / `201` / `400` / `401` / `403`) |
-| `POST /api/review` | Implemented | Auth + body check -> USER knowledge fetch -> FastAPI `/review` (`x-api-key`) -> ADMIN persistence of `review_runs`, `findings`, `suggestions`, `audit_events` (`90s` stale lock, atomic `markRunFailed` rollback) |
-| `POST /api/suggestions/[id]/decision` | Implemented | Auth + UUID/payload validation -> USER RLS `review_decisions` insert (`403`/`409` mapped) -> ADMIN status/audit update + `documents.status = 'reviewed'` when all latest-run suggestions are decided |
+### Prerequisites
+- **Node.js** `>= 20` (tested on `v24.14.0`) and **pnpm** (`12.x`)
+- **Python** `>= 3.11` (tested on `3.13.15`)
+- **Supabase** project with `0001_schema.sql` & `seed.sql` applied and `judge@brandguardian.demo` / `outsider@brandguardian.demo` Auth users created
+- **Groq API key** (`openai/gpt-oss-20b`, hosted demo provider) or local **Ollama** (`qwen2.5:3b`, optional local-only mode)
 
----
+### 1. Environment Variables
+Copy `.env.example` templates locally (never commit `.env` or `.env.local`):
+- **`web/.env.example` -> `web/.env.local`:** `NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_ANON_KEY`, `SUPABASE_SERVICE_ROLE_KEY`, `AI_SERVICE_URL`, `AI_SERVICE_TOKEN`, `DEMO_EMAIL`, `DEMO_PASSWORD`.
+- **`ai-service/.env.example` -> `ai-service/.env`:** `AI_SERVICE_TOKEN` (must match `web/.env.local`), `LLM_PROVIDER`, `GROQ_API_KEY`, `GROQ_MODEL`, `LLM_TIMEOUT` (plus `OLLAMA_URL` / `OLLAMA_MODEL` for optional local mode).
 
-## Prerequisites
-
-- **Node.js** `>= 20` (tested on `v24.14.0`) and **pnpm**
-- **Python** `>= 3.11` (tested on `3.13.15`) and **uv** or **pip**
-- **Supabase** project with `0001_schema.sql` & `seed.sql` applied and demo auth users created
-- **Ollama** (local mode, e.g. `qwen2.5:3b`) or **Groq** API key configured inside `ai-service/.env`
-
----
-
-## Local Setup
-
-### 1. Environment Templates
-
-Copy templates locally without committing secrets (`.env*` is gitignored):
-
-- **Web (`web/.env.example` -> `web/.env.local`):**
-  - `NEXT_PUBLIC_SUPABASE_URL`
-  - `NEXT_PUBLIC_SUPABASE_ANON_KEY`
-  - `DEMO_EMAIL` and `DEMO_PASSWORD` *(server-only; read exclusively in `web/lib/env.ts` `getDemoCredentials()`)*
-  - `SUPABASE_SERVICE_ROLE_KEY`, `AI_SERVICE_URL`, `AI_SERVICE_TOKEN` *(required server-side for `POST /api/review` and admin status/audit updates in M2/M3)*
-- **AI Service (`ai-service/.env.example` -> `ai-service/.env`):**
-  - `AI_SERVICE_TOKEN` *(must match `web/.env.local`)*, `LLM_PROVIDER=groq` (default in `.env.example`) or `ollama`, plus `GROQ_API_KEY` / `GROQ_MODEL` (`openai/gpt-oss-20b`).
-
-### 2. Web Application (`web/`)
-
-```bash
-cd web
-pnpm install
-pnpm typecheck
-pnpm test
-pnpm build
-pnpm start
-```
-
-Note: ESLint (`pnpm lint`) is not yet configured in `web/package.json` (`[DEF-09]`, awaiting Tier B approval).
-
-### 3. Python AI Microservice (`ai-service/`)
-
-```bash
+### 2. Run `ai-service/` (Terminal 1)
+```powershell
 cd ai-service
-uv venv .venv
-.venv\Scripts\activate
-uv pip install -r requirements.txt
-python -m pytest -v
+python -m venv .venv
+.\.venv\Scripts\Activate.ps1
+pip install -r requirements.txt
 uvicorn main:app --host 127.0.0.1 --port 8000 --env-file .env
 ```
 
-### 4. Database & RLS Verification (`supabase/`)
+### 3. Run `web/` (Terminal 2)
+```powershell
+cd web
+pnpm install
+pnpm build
+pnpm start
+```
+Open `http://127.0.0.1:3000`.
 
-1. Apply `supabase/migrations/0001_schema.sql` in Supabase SQL Editor.
+### 4. Supabase Migrations & SQL Checks (Supabase SQL Editor)
+1. Apply `supabase/migrations/0001_schema.sql`.
 2. Create `judge@brandguardian.demo` and `outsider@brandguardian.demo` in Supabase Auth, then run `supabase/seed.sql`.
-3. Apply `supabase/migrations/0002_rls_hardening.sql` (`[DEF-10]`) and run `supabase/tests/rls_checks.sql` (cases `a`–`g` + `pg_policies` summary) in the Supabase SQL Editor.
-4. Run `supabase/tests/decision_rls.sql` (cases `a`–`d`, wrapped in `begin`/`rollback`).
-5. **Only after a live M3 decision test passes**, apply `supabase/migrations/0003_audit_server_only.sql` to lock `audit_events` inserts strictly to the server `service_role`.
+3. Apply `supabase/migrations/0002_rls_hardening.sql` (`[DEF-10]`) and run `supabase/tests/rls_checks.sql`.
+4. Run `supabase/tests/decision_rls.sql` (wrapped in `begin` / `rollback`).
+5. **Only after a live M3 decision test passes**, apply `supabase/migrations/0003_audit_server_only.sql`.
 
 ---
 
-## Security Boundaries
+## Verified Tests & Quality Checks
 
-1. **Client & Bundle Secret Isolation:** `web/lib/env.ts`, `web/lib/supabase/admin.ts`, `web/lib/profiles.ts`, and `web/lib/workspace.ts` enforce `import 'server-only'`. `DEMO_EMAIL`, `DEMO_PASSWORD`, `SUPABASE_SERVICE_ROLE_KEY`, `GROQ_API_KEY`, and `AI_SERVICE_TOKEN` never enter client components or `.next/static/*.js`.
-2. **Strict Separation of User RLS vs Server Admin Writes:** Knowledge reads, document submissions, and `review_decisions` inserts run via `createClient()` (`web/lib/supabase/server.ts`) under PostgreSQL RLS so `creator` roles cannot decide (`42501`) and duplicates return `409` (`23505`). Server-owned records (`review_runs`, `findings`, `suggestions`, workflow status updates, and `audit_events`) execute via `createAdminClient()` (`server-only`).
-3. **LLM Credential Isolation & Auth Ordering:** `GROQ_API_KEY` lives strictly inside `ai-service/.env` and is never read by `web/`. `POST /review` checks `x-api-key` via `Depends(require_key)` before request schema validation (`401`).
-4. **Response Headers & Error Boundaries:** `web/next.config.mjs` sets `poweredByHeader: false`, `Content-Security-Policy`, `Permissions-Policy`, `X-Content-Type-Options: nosniff`, `X-Frame-Options: DENY`, and `Referrer-Policy`. `web/app/error.tsx` displays fixed fallback copy without raw `error.message`.
+Full commands, outputs, dates, and `Agent` vs `USER-RUN` boundaries are recorded in [`docs/test-evidence.md`](docs/test-evidence.md):
+
+- **AI Service tests:** `.\ai-service\.venv\Scripts\python.exe -m pytest -q ai-service` -> `12 passed, 1 warning in 0.55s` (`2026-11-10`).
+- **Web TypeScript:** `pnpm --dir web typecheck` and `pnpm --dir web exec tsc --noEmit --noUnusedLocals --noUnusedParameters` -> exit `0`.
+- **Web unit tests:** `pnpm --dir web test` -> `17 passed, 0 failed` (`m1.test.ts` 5, `review.test.ts` 7, `decision.test.ts` 4, `security.test.mjs` 1).
+- **Web production build (local + isolated clean checkout with documented env vars only):** exit `0`.
+- **RLS isolation & hardening (`USER-RUN`):** `7 of 7` cases (`a`–`g`) passed, `pg_policies` active across all `14` public tables, `0` `DELETE` grants for `authenticated`.
 
 ---
 
 ## Documentation Index
 
-- [System Architecture](docs/architecture.md)
-- [Known Limitations](docs/limitations.md)
+- [Deployment Guide (Vercel + Render/Railway)](docs/deployment.md)
+- [Features Matrix (Completed, Partial, Not Built)](docs/features.md)
+- [System Architecture & Failure Modes](docs/architecture.md)
 - [AI Assistance & Governance Disclosure](docs/ai-disclosure.md)
-- [Verification & Test Evidence](docs/test-evidence.md)
-- [QA Matrix](.planning/QA.md)
-- [Defect Log](.planning/DEFECTS.md)
-- [Decisions Needed](.planning/DECISIONS_NEEDED.md)
+- [Test & Verification Evidence](docs/test-evidence.md)
+- [Known Limitations](docs/limitations.md)
+- [Round 3 Roadmap](docs/round3-roadmap.md)
+- [Team Contributions Template](docs/contributions.md)
+- [Submission Readiness Checklist](docs/submission-checklist.md)
