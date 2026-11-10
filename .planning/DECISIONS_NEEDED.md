@@ -81,10 +81,18 @@ Boolean presence checks (no values inspected or printed) identified the followin
 
 ---
 
-## 3. Committed SQL Scripts Pending Manual Supabase SQL Editor Execution (`USER-RUN`)
+## 3. Committed SQL Scripts Status (`USER-RUN`)
 
-All SQL files below are committed and **NOT applied** by the agent:
-1. Apply `supabase/migrations/0002_rls_hardening.sql` (`[DEF-10]`: immutability trigger on `documents.workspace_id` / `created_by`, `(select auth.uid())` helpers, `REVOKE DELETE`, 4 indexes).
-2. Run `supabase/tests/rls_checks.sql` (`cases a–g` + `pg_policies` summary).
-3. Run `supabase/tests/decision_rls.sql` (`cases a–d`: approver/admin allow, creator `42501`, duplicate `23505`, outsider cross-workspace `42501`).
-4. **Apply `supabase/migrations/0003_audit_server_only.sql` ONLY AFTER a live M3 decision test passes cleanly** (drops client `audit_insert` policy so only `service_role` inserts `audit_events`).
+All SQL scripts remain **NOT applied by the agent**:
+1. **Completed by Project Owner (`USER-RUN`):** Applied `supabase/migrations/0002_rls_hardening.sql` (`[DEF-10]`) and ran `supabase/tests/rls_checks.sql` in Supabase SQL Editor — observed `7 of 7` isolation cases (`a–g`) pass, RLS policies active across all `14` public tables, and `0` `DELETE` grants for `authenticated`.
+2. **Pending (`USER-RUN`):** Run `supabase/tests/decision_rls.sql` (`cases a–d`: approver/admin allow, creator `42501`, duplicate `23505`, outsider cross-workspace `42501`, wrapped in `begin`/`rollback`).
+3. **Pending (`USER-RUN`, post-test only):** **Apply `supabase/migrations/0003_audit_server_only.sql` ONLY AFTER a live M3 decision test passes cleanly** (drops client `audit_insert` policy so only `service_role` inserts `audit_events`).
+
+---
+
+## 4. Deferred UI / Feature-Freeze Decisions
+
+### Dashboard `"service status"` line (Not present — left unadded)
+- **Observed (`web/app/(app)/dashboard/page.tsx`):** Verified directly that `/dashboard` renders workspace name/role, **Knowledge Ledger**, and **Recent Documents**, with no `"service status"` line or widget. Runtime config booleans live on `GET /api/health` (`supabase_configured`, `ai_service_configured`), `/login` displays a missing-Supabase config warning when unset, and `/documents/[id]` displays `AiStatusBanner` (`AI review completed` / `AI unavailable` / `AI output rejected` / `AI check skipped`) on review runs.
+- **Action Taken:** Did **not** add a dashboard service-status line (feature freeze; no unapproved UI additions).
+- **Decision Needed:** Confirm keeping `/dashboard` without a service-status line for submission, or explicitly request adding one if desired after freeze.
