@@ -9,6 +9,7 @@ import {
   type WorkspaceRunSummary,
 } from '@/components/document-review-workspace';
 import { Badge } from '@/components/ui/badge';
+import { loadProfileNamesMap } from '@/lib/profiles';
 import { createClient } from '@/lib/supabase/server';
 import type {
   AiStatus,
@@ -17,6 +18,7 @@ import type {
   Severity,
   VerificationStatus,
 } from '@/lib/types/finding';
+import type { DecisionType } from '@/lib/validators/decision';
 import { isUuid } from '@/lib/validators/m1';
 import { getWorkspaceContext } from '@/lib/workspace';
 
@@ -47,6 +49,22 @@ interface ReviewRunRow {
   completed_at: string | null;
 }
 
+interface DecisionJoinRow {
+  id: string;
+  decision: DecisionType;
+  edited_text: string | null;
+  comment: string | null;
+  reviewer_id: string;
+  created_at: string;
+}
+
+interface SuggestionJoinRow {
+  id: string;
+  suggested_text: string | null;
+  status: string;
+  review_decisions: DecisionJoinRow | DecisionJoinRow[] | null;
+}
+
 interface FindingQueryRow {
   id: string;
   category: Category;
@@ -60,10 +78,7 @@ interface FindingQueryRow {
   confidence: number | string | null;
   verification_status: VerificationStatus;
   origin: FindingOrigin;
-  suggestions:
-    | { id: string; suggested_text: string | null; status: string }
-    | { id: string; suggested_text: string | null; status: string }[]
-    | null;
+  suggestions: SuggestionJoinRow | SuggestionJoinRow[] | null;
 }
 
 interface RuleEvidenceRow {
@@ -221,18 +236,42 @@ export default async function DocumentDetailPage({
   }
 
   let findings: PersistedFindingItem[] = [];
+  let currentUserLabel = ctx.user.email ?? 'Signed-in reviewer';
+  const reviewerIds: string[] = [ctx.user.id];
   if (completedRunRow) {
     const { data: findingsData } = await supabase
       .from('findings')
       .select(
-        'id, category, severity, matched_text, start_offset, end_offset, explanation, source_type, source_id, confidence, verification_status, origin, suggestions(id, suggested_text, status)'
+        'id, category, severity, matched_text, start_offset, end_offset, explanation, source_type, source_id, confidence, verification_status, origin, suggestions(id, suggested_text, status, review_decisions(id, decision, edited_text, comment, reviewer_id, created_at))'
       )
       .eq('review_run_id', completedRunRow.id);
 
-    findings = ((findingsData as FindingQueryRow[] | null) ?? []).map((row) => {
+    const rawFindings = (findingsData as FindingQueryRow[] | null) ?? [];
+    for (const row of rawFindings) {
+      const sug = Array.isArray(row.suggestions)
+        ? row.suggestions[0] ?? null
+        : row.suggestions;
+      const dec = sug?.review_decisions
+        ? Array.isArray(sug.review_decisions)
+          ? sug.review_decisions[0] ?? null
+          : sug.review_decisions
+        : null;
+      if (dec?.reviewer_id) {
+        reviewerIds.push(dec.reviewer_id);
+      }
+    }
+    const profileNames = await loadProfileNamesMap(reviewerIds);
+
+    findings = rawFindings.map((row) => {
       const suggestion = Array.isArray(row.suggestions)
         ? row.suggestions[0] ?? null
         : row.suggestions;
+      const decisionRow = suggestion?.review_decisions
+        ? Array.isArray(suggestion.review_decisions)
+          ? suggestion.review_decisions[0] ?? null
+          : suggestion.review_decisions
+        : null;
+
       const numericConfidence =
         typeof row.confidence === 'number'
           ? row.confidence
@@ -256,8 +295,25 @@ export default async function DocumentDetailPage({
         suggested_text: suggestion?.suggested_text ?? null,
         suggestion_id: suggestion?.id ?? null,
         suggestion_status: suggestion?.status ?? null,
+        decision: decisionRow
+          ? {
+              id: decisionRow.id,
+              decision: decisionRow.decision,
+              editedText: decisionRow.edited_text,
+              comment: decisionRow.comment,
+              reviewerName:
+                profileNames[decisionRow.reviewer_id] ??
+                (decisionRow.reviewer_id === ctx.user?.id
+                  ? ctx.user.email ?? 'Signed-in reviewer'
+                  : 'Workspace reviewer'),
+              createdAt: decisionRow.created_at,
+            }
+          : null,
       };
     });
+
+    currentUserLabel =
+      profileNames[ctx.user.id] ?? ctx.user.email ?? 'Signed-in reviewer';
   }
 
   const evidence: EvidenceLookup = {
@@ -342,6 +398,8 @@ export default async function DocumentDetailPage({
       <DocumentReviewWorkspace
         documentId={documentRow.id}
         content={documentRow.content}
+        workspaceRole={ctx.workspace?.role ?? null}
+        currentUserLabel={currentUserLabel}
         completedRun={
           completedRunRow
             ? toRunSummary(completedRunRow, completedAiDetail)

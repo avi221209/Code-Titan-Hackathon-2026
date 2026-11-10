@@ -5,14 +5,23 @@ import { useRouter } from 'next/navigation';
 import {
   AlertCircle,
   BookOpenCheck,
+  Check,
+  CheckCircle2,
+  ChevronDown,
+  ChevronUp,
+  Copy,
+  Eye,
   Loader2,
+  Pencil,
   Play,
   ShieldAlert,
+  XCircle,
 } from 'lucide-react';
 import { AiStatusBanner } from '@/components/ai-status-banner';
 import { SeverityBadge } from '@/components/severity-badge';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
+import { Textarea } from '@/components/ui/textarea';
 import { VerificationBadge } from '@/components/verification-badge';
 import type {
   AiStatus,
@@ -23,11 +32,18 @@ import type {
 } from '@/lib/types/finding';
 import { cn } from '@/lib/utils';
 import {
+  MAX_DECISION_TEXT_LENGTH,
+  applyAcceptedEditsToDocument,
+  canRoleRecordDecision,
+  type DecisionType,
+} from '@/lib/validators/decision';
+import {
   buildHighlightedDocumentSegments,
   isStaleRunningReview,
   resolveHighlightSpan,
   sortFindingsBySeverityAndOffset,
 } from '@/lib/validators/review';
+import type { WorkspaceRole } from '@/lib/workspace';
 
 export interface WorkspaceRunSummary {
   id: string;
@@ -38,6 +54,15 @@ export interface WorkspaceRunSummary {
   error: string | null;
   startedAt: string;
   completedAt: string | null;
+}
+
+export interface PersistedDecisionInfo {
+  id: string;
+  decision: DecisionType;
+  editedText: string | null;
+  comment: string | null;
+  reviewerName: string;
+  createdAt: string;
 }
 
 export interface PersistedFindingItem {
@@ -56,6 +81,7 @@ export interface PersistedFindingItem {
   suggested_text: string | null;
   suggestion_id: string | null;
   suggestion_status: string | null;
+  decision: PersistedDecisionInfo | null;
 }
 
 export interface EvidenceLookup {
@@ -91,6 +117,8 @@ export interface EvidenceLookup {
 export interface DocumentReviewWorkspaceProps {
   documentId: string;
   content: string;
+  workspaceRole: WorkspaceRole | null;
+  currentUserLabel: string;
   completedRun: WorkspaceRunSummary | null;
   latestAttempt: WorkspaceRunSummary | null;
   findings: PersistedFindingItem[];
@@ -118,6 +146,19 @@ const HIGHLIGHT_STYLES: Record<Severity, { base: string; selected: string }> = {
 
 function formatCategoryLabel(category: Category): string {
   return category.replace(/_/g, ' ');
+}
+
+function formatDecisionLabel(decision: DecisionType): string {
+  switch (decision) {
+    case 'accepted':
+      return 'Accepted';
+    case 'edited':
+      return 'Edited';
+    case 'rejected':
+      return 'Rejected';
+    case 'dismissed':
+      return 'Dismissed';
+  }
 }
 
 function formatUtcTimestamp(iso: string): string {
@@ -204,31 +245,99 @@ function renderEvidencePanel(
 export function DocumentReviewWorkspace({
   documentId,
   content,
+  workspaceRole,
+  currentUserLabel,
   completedRun,
   latestAttempt,
   findings,
   evidence,
 }: DocumentReviewWorkspaceProps) {
   const router = useRouter();
+  const [localDecisions, setLocalDecisions] = React.useState<
+    Record<string, PersistedDecisionInfo>
+  >({});
+
+  React.useEffect(() => {
+    setLocalDecisions({});
+  }, [completedRun?.id]);
+
+  const effectiveFindings = React.useMemo(
+    () =>
+      findings.map((finding) => ({
+        ...finding,
+        decision: localDecisions[finding.id] ?? finding.decision,
+      })),
+    [findings, localDecisions]
+  );
+
   const sortedFindings = React.useMemo(
-    () => sortFindingsBySeverityAndOffset(findings),
-    [findings]
+    () => sortFindingsBySeverityAndOffset(effectiveFindings),
+    [effectiveFindings]
   );
   const segments = React.useMemo(
     () => buildHighlightedDocumentSegments(content, sortedFindings),
     [content, sortedFindings]
   );
 
+  const previewResult = React.useMemo(
+    () =>
+      applyAcceptedEditsToDocument(
+        content,
+        sortedFindings.map((item) => ({
+          id: item.id,
+          severity: item.severity,
+          matched_text: item.matched_text,
+          start_offset: item.start_offset,
+          end_offset: item.end_offset,
+          decision: item.decision?.decision ?? null,
+          replacementText:
+            item.decision?.decision === 'edited'
+              ? item.decision.editedText
+              : item.decision?.decision === 'accepted'
+                ? item.suggested_text
+                : null,
+        }))
+      ),
+    [content, sortedFindings]
+  );
+
+  const canDecide = canRoleRecordDecision(workspaceRole);
   const serverRunning =
     latestAttempt?.status === 'running' &&
     !isStaleRunningReview(latestAttempt.startedAt);
-  const [isSubmitting, setIsSubmitting] = React.useState(false);
-  const inFlightRef = React.useRef(false);
-  const [requestError, setRequestError] = React.useState<string | null>(null);
+
+  const [isSubmittingReview, setIsSubmittingReview] = React.useState(false);
+  const inFlightReviewRef = React.useRef(false);
+  const [reviewError, setReviewError] = React.useState<string | null>(null);
   const [liveAnnouncement, setLiveAnnouncement] = React.useState('');
   const [selectedFindingId, setSelectedFindingId] = React.useState<
     string | null
   >(() => sortedFindings[0]?.id ?? null);
+
+  // Evidence disclosure & gate state (High/Critical start collapsed until clicked)
+  const [openedEvidenceIds, setOpenedEvidenceIds] = React.useState<
+    Record<string, boolean>
+  >({});
+  const [expandedEvidenceIds, setExpandedEvidenceIds] = React.useState<
+    Record<string, boolean>
+  >({});
+
+  // Inline decision editing / rejection state
+  const [activeEditor, setActiveEditor] = React.useState<{
+    findingId: string;
+    mode: 'edit' | 'reject';
+    text: string;
+  } | null>(null);
+  const [submittingFindingId, setSubmittingFindingId] = React.useState<
+    string | null
+  >(null);
+  const [decisionErrors, setDecisionErrors] = React.useState<
+    Record<string, string>
+  >({});
+
+  // Final-text read-only preview & copy state
+  const [showPreview, setShowPreview] = React.useState(false);
+  const [copyFeedback, setCopyFeedback] = React.useState<string | null>(null);
 
   const findingRefs = React.useRef<Record<string, HTMLElement | null>>({});
 
@@ -311,14 +420,22 @@ export function DocumentReviewWorkspace({
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [selectedFindingId, selectFindingByIndex, sortedFindings]);
 
+  function toggleEvidencePanel(finding: PersistedFindingItem, currentlyOpen: boolean) {
+    const nextOpen = !currentlyOpen;
+    setExpandedEvidenceIds((prev) => ({ ...prev, [finding.id]: nextOpen }));
+    if (nextOpen) {
+      setOpenedEvidenceIds((prev) => ({ ...prev, [finding.id]: true }));
+    }
+  }
+
   async function handleRunReview() {
-    if (inFlightRef.current || isSubmitting || serverRunning) {
+    if (inFlightReviewRef.current || isSubmittingReview || serverRunning) {
       return;
     }
 
-    inFlightRef.current = true;
-    setIsSubmitting(true);
-    setRequestError(null);
+    inFlightReviewRef.current = true;
+    setIsSubmittingReview(true);
+    setReviewError(null);
     setLiveAnnouncement('Compliance review started.');
 
     try {
@@ -338,7 +455,7 @@ export function DocumentReviewWorkspace({
         const errText =
           payload.error ??
           'Compliance review failed before completion. Please try again.';
-        setRequestError(errText);
+        setReviewError(errText);
         setLiveAnnouncement(`Compliance review failed: ${errText}`);
         router.refresh();
         return;
@@ -352,15 +469,99 @@ export function DocumentReviewWorkspace({
       router.refresh();
     } catch {
       const msg = 'Network error while running compliance review.';
-      setRequestError(msg);
+      setReviewError(msg);
       setLiveAnnouncement(msg);
     } finally {
-      inFlightRef.current = false;
-      setIsSubmitting(false);
+      inFlightReviewRef.current = false;
+      setIsSubmittingReview(false);
     }
   }
 
-  const isBusy = isSubmitting || serverRunning;
+  async function submitDecision(
+    finding: PersistedFindingItem,
+    decision: DecisionType,
+    extra?: { editedText?: string; comment?: string }
+  ) {
+    if (!finding.suggestion_id || submittingFindingId) {
+      return;
+    }
+
+    setDecisionErrors((prev) => {
+      const copy = { ...prev };
+      delete copy[finding.id];
+      return copy;
+    });
+    setSubmittingFindingId(finding.id);
+
+    try {
+      const response = await fetch(
+        `/api/suggestions/${finding.suggestion_id}/decision`,
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            decision,
+            ...(extra?.editedText !== undefined
+              ? { editedText: extra.editedText }
+              : {}),
+            ...(extra?.comment !== undefined ? { comment: extra.comment } : {}),
+          }),
+        }
+      );
+
+      const payload = (await response.json().catch(() => ({}))) as {
+        decisionId?: string;
+        decision?: DecisionType;
+        editedText?: string | null;
+        comment?: string | null;
+        createdAt?: string;
+        error?: string;
+      };
+
+      if (!response.ok) {
+        const msg = payload.error ?? 'Failed to record review decision.';
+        setDecisionErrors((prev) => ({ ...prev, [finding.id]: msg }));
+        setLiveAnnouncement(msg);
+        return;
+      }
+
+      setLocalDecisions((prev) => ({
+        ...prev,
+        [finding.id]: {
+          id: payload.decisionId ?? finding.id,
+          decision: payload.decision ?? decision,
+          editedText: payload.editedText ?? extra?.editedText?.trim() ?? null,
+          comment: payload.comment ?? extra?.comment?.trim() ?? null,
+          reviewerName: currentUserLabel,
+          createdAt: payload.createdAt ?? new Date().toISOString(),
+        },
+      }));
+      setActiveEditor(null);
+      setLiveAnnouncement(
+        `Recorded ${decision} decision for finding "${finding.matched_text}".`
+      );
+      router.refresh();
+    } catch {
+      const msg = 'Network error while recording decision. Please try again.';
+      setDecisionErrors((prev) => ({ ...prev, [finding.id]: msg }));
+      setLiveAnnouncement(msg);
+    } finally {
+      setSubmittingFindingId(null);
+    }
+  }
+
+  async function handleCopyPreview() {
+    setCopyFeedback(null);
+    try {
+      await navigator.clipboard.writeText(previewResult.text);
+      setCopyFeedback('Copied preview text to clipboard.');
+      setLiveAnnouncement('Copied preview text to clipboard.');
+    } catch {
+      setCopyFeedback('Clipboard copy failed in this browser context.');
+    }
+  }
+
+  const isBusy = isSubmittingReview || serverRunning;
   const latestRunFailed =
     latestAttempt?.status === 'failed' &&
     (!completedRun ||
@@ -387,33 +588,49 @@ export function DocumentReviewWorkspace({
             </p>
           </div>
 
-          <Button
-            type="button"
-            onClick={handleRunReview}
-            disabled={isBusy}
-            aria-busy={isBusy}
-            className="w-full sm:w-auto"
-          >
-            {isBusy ? (
-              <Loader2 className="size-4 animate-spin" aria-hidden="true" />
-            ) : (
-              <Play className="size-4" aria-hidden="true" />
-            )}
-            <span>{isBusy ? 'Running review…' : 'Run review'}</span>
-          </Button>
+          <div className="flex flex-wrap items-center gap-2">
+            {completedRun ? (
+              <Button
+                type="button"
+                variant="outline"
+                onClick={() => setShowPreview((v) => !v)}
+                aria-expanded={showPreview}
+              >
+                <Eye className="size-4" aria-hidden="true" />
+                <span>
+                  {showPreview ? 'Hide final text' : 'Preview final text'}
+                </span>
+              </Button>
+            ) : null}
+
+            <Button
+              type="button"
+              onClick={handleRunReview}
+              disabled={isBusy}
+              aria-busy={isBusy}
+              className="w-full sm:w-auto"
+            >
+              {isBusy ? (
+                <Loader2 className="size-4 animate-spin" aria-hidden="true" />
+              ) : (
+                <Play className="size-4" aria-hidden="true" />
+              )}
+              <span>{isBusy ? 'Running review…' : 'Run review'}</span>
+            </Button>
+          </div>
         </div>
 
-        {requestError ? (
+        {reviewError ? (
           <div
             role="alert"
             className="flex items-start gap-2.5 rounded-md border border-severity-critical-border bg-severity-critical-bg px-4 py-3 text-sm text-severity-critical-fg"
           >
             <AlertCircle className="mt-0.5 size-4 shrink-0" aria-hidden="true" />
-            <span>{requestError}</span>
+            <span>{reviewError}</span>
           </div>
         ) : null}
 
-        {latestRunFailed && !requestError ? (
+        {latestRunFailed && !reviewError ? (
           <div
             role="alert"
             className="flex items-start gap-2.5 rounded-md border border-severity-critical-border bg-severity-critical-bg px-4 py-3 text-sm text-severity-critical-fg"
@@ -458,6 +675,52 @@ export function DocumentReviewWorkspace({
           </p>
         ) : null}
       </section>
+
+      {showPreview ? (
+        <section
+          aria-labelledby="final-preview-heading"
+          className="flex flex-col gap-4 rounded-lg border border-border bg-card p-6 shadow-sm"
+        >
+          <div className="flex flex-wrap items-center justify-between gap-3 border-b border-border pb-3">
+            <div>
+              <h2
+                id="final-preview-heading"
+                className="font-serif text-lg font-semibold tracking-tight text-foreground"
+              >
+                Preview Final Text (Read-only)
+              </h2>
+              <p className="text-xs text-muted-foreground">
+                Applies {previewResult.appliedCount} accepted/edited{' '}
+                {previewResult.appliedCount === 1 ? 'change' : 'changes'} from
+                end to start; stored document draft remains untouched.
+                {previewResult.skippedOverlapCount > 0
+                  ? ` Skipped ${previewResult.skippedOverlapCount} overlapping edit(s).`
+                  : ''}
+              </p>
+            </div>
+
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              onClick={handleCopyPreview}
+            >
+              <Copy className="size-3.5" aria-hidden="true" />
+              <span>Copy</span>
+            </Button>
+          </div>
+
+          {copyFeedback ? (
+            <p role="status" className="text-xs font-medium text-primary">
+              {copyFeedback}
+            </p>
+          ) : null}
+
+          <p className="max-w-[65ch] whitespace-pre-wrap rounded-md border border-border bg-background p-4 text-sm leading-relaxed text-foreground">
+            {previewResult.text}
+          </p>
+        </section>
+      ) : null}
 
       <div className="grid grid-cols-1 gap-6 lg:grid-cols-[1.05fr_0.95fr] lg:items-start">
         <article
@@ -555,6 +818,34 @@ export function DocumentReviewWorkspace({
                 const hasHighlight =
                   resolveHighlightSpan(content, finding) !== null;
                 const confidencePct = Math.round(finding.confidence * 100);
+                const isHighOrCritical =
+                  finding.severity === 'high' ||
+                  finding.severity === 'critical';
+                const isEvidenceOpen =
+                  expandedEvidenceIds[finding.id] ?? !isHighOrCritical;
+                const evidenceWasOpened = Boolean(openedEvidenceIds[finding.id]);
+                const hasDecision = Boolean(finding.decision);
+                const isSubmittingCard = submittingFindingId === finding.id;
+                const cardError = decisionErrors[finding.id];
+                const isEditingThis =
+                  activeEditor?.findingId === finding.id &&
+                  activeEditor.mode === 'edit';
+                const isRejectingThis =
+                  activeEditor?.findingId === finding.id &&
+                  activeEditor.mode === 'reject';
+
+                const acceptDisabled =
+                  hasDecision ||
+                  !canDecide ||
+                  isSubmittingCard ||
+                  !finding.suggestion_id ||
+                  (isHighOrCritical && !evidenceWasOpened);
+
+                const commonActionDisabled =
+                  hasDecision ||
+                  !canDecide ||
+                  isSubmittingCard ||
+                  !finding.suggestion_id;
 
                 return (
                   <li key={finding.id}>
@@ -617,7 +908,7 @@ export function DocumentReviewWorkspace({
 
                       <div className="rounded-md border border-border bg-card px-3 py-2.5">
                         <p className="mb-1 text-[11px] font-medium uppercase tracking-wider text-muted-foreground">
-                          Suggested revision (read-only)
+                          Suggested revision
                         </p>
                         {finding.suggested_text ? (
                           <p className="font-mono text-xs text-foreground">
@@ -632,15 +923,284 @@ export function DocumentReviewWorkspace({
                       </div>
 
                       <div className="rounded-md border border-border bg-card px-3 py-2.5">
-                        <p className="mb-1 flex items-center gap-1.5 text-[11px] font-medium uppercase tracking-wider text-muted-foreground">
-                          <BookOpenCheck
-                            className="size-3.5 text-primary"
-                            aria-hidden="true"
-                          />
-                          <span>Evidence</span>
-                        </p>
-                        {renderEvidencePanel(finding, evidence)}
+                        <div className="flex items-center justify-between gap-2">
+                          <span className="flex items-center gap-1.5 text-[11px] font-medium uppercase tracking-wider text-muted-foreground">
+                            <BookOpenCheck
+                              className="size-3.5 text-primary"
+                              aria-hidden="true"
+                            />
+                            <span>Evidence</span>
+                          </span>
+                          <button
+                            type="button"
+                            aria-expanded={isEvidenceOpen}
+                            onClick={() =>
+                              toggleEvidencePanel(finding, isEvidenceOpen)
+                            }
+                            className="inline-flex items-center gap-1 rounded px-2 py-0.5 text-xs font-medium text-primary hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                          >
+                            <span>
+                              {isEvidenceOpen
+                                ? 'Hide evidence'
+                                : 'Inspect evidence'}
+                            </span>
+                            {isEvidenceOpen ? (
+                              <ChevronUp
+                                className="size-3.5"
+                                aria-hidden="true"
+                              />
+                            ) : (
+                              <ChevronDown
+                                className="size-3.5"
+                                aria-hidden="true"
+                              />
+                            )}
+                          </button>
+                        </div>
+                        {isEvidenceOpen ? (
+                          <div className="mt-2">
+                            {renderEvidencePanel(finding, evidence)}
+                          </div>
+                        ) : (
+                          <p className="mt-1.5 text-xs text-muted-foreground">
+                            Inspect evidence before accepting high or critical
+                            findings.
+                          </p>
+                        )}
                       </div>
+
+                      {finding.decision ? (
+                        <div className="flex flex-col gap-1.5 rounded-md border border-primary/30 bg-accent/40 px-3 py-2.5 text-xs">
+                          <div className="flex flex-wrap items-center justify-between gap-2">
+                            <Badge variant="secondary">
+                              <CheckCircle2
+                                className="size-3"
+                                aria-hidden="true"
+                              />
+                              <span>
+                                {formatDecisionLabel(finding.decision.decision)}
+                              </span>
+                            </Badge>
+                            <span className="font-mono text-[11px] text-muted-foreground">
+                              {finding.decision.reviewerName} ·{' '}
+                              {formatUtcTimestamp(finding.decision.createdAt)}{' '}
+                              UTC
+                            </span>
+                          </div>
+                          {finding.decision.editedText ? (
+                            <p className="font-mono text-xs text-foreground">
+                              Edited text: {finding.decision.editedText}
+                            </p>
+                          ) : null}
+                          {finding.decision.comment ? (
+                            <p className="text-foreground">
+                              Comment: {finding.decision.comment}
+                            </p>
+                          ) : null}
+                        </div>
+                      ) : null}
+
+                      {!canDecide && !hasDecision ? (
+                        <p className="text-xs font-medium text-muted-foreground">
+                          Your role cannot record decisions.
+                        </p>
+                      ) : null}
+
+                      {!hasDecision &&
+                      canDecide &&
+                      finding.suggested_text &&
+                      isHighOrCritical &&
+                      !evidenceWasOpened ? (
+                        <p className="text-xs text-muted-foreground">
+                          Open the evidence panel above to enable Accept on this{' '}
+                          {finding.severity} finding.
+                        </p>
+                      ) : null}
+
+                      <div className="flex flex-wrap items-center gap-2 pt-1">
+                        {finding.suggested_text !== null ? (
+                          <>
+                            <Button
+                              type="button"
+                              size="sm"
+                              disabled={acceptDisabled}
+                              onClick={() =>
+                                submitDecision(finding, 'accepted')
+                              }
+                            >
+                              <Check className="size-3.5" aria-hidden="true" />
+                              <span>Accept</span>
+                            </Button>
+
+                            <Button
+                              type="button"
+                              variant="outline"
+                              size="sm"
+                              disabled={commonActionDisabled}
+                              onClick={() => {
+                                setDecisionErrors((prev) => {
+                                  const copy = { ...prev };
+                                  delete copy[finding.id];
+                                  return copy;
+                                });
+                                setActiveEditor({
+                                  findingId: finding.id,
+                                  mode: 'edit',
+                                  text: finding.suggested_text ?? '',
+                                });
+                              }}
+                            >
+                              <Pencil className="size-3.5" aria-hidden="true" />
+                              <span>Edit</span>
+                            </Button>
+                          </>
+                        ) : null}
+
+                        <Button
+                          type="button"
+                          variant="outline"
+                          size="sm"
+                          disabled={commonActionDisabled}
+                          onClick={() => {
+                            setDecisionErrors((prev) => {
+                              const copy = { ...prev };
+                              delete copy[finding.id];
+                              return copy;
+                            });
+                            setActiveEditor({
+                              findingId: finding.id,
+                              mode: 'reject',
+                              text: '',
+                            });
+                          }}
+                        >
+                          <XCircle className="size-3.5" aria-hidden="true" />
+                          <span>Reject</span>
+                        </Button>
+
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="sm"
+                          disabled={commonActionDisabled}
+                          onClick={() => submitDecision(finding, 'dismissed')}
+                        >
+                          <span>Dismiss</span>
+                        </Button>
+                      </div>
+
+                      {isEditingThis ? (
+                        <form
+                          onSubmit={(e) => {
+                            e.preventDefault();
+                            submitDecision(finding, 'edited', {
+                              editedText: activeEditor.text,
+                            });
+                          }}
+                          className="flex flex-col gap-2 rounded-md border border-border bg-card p-3"
+                        >
+                          <label
+                            htmlFor={`edit-text-${finding.id}`}
+                            className="text-xs font-medium text-foreground"
+                          >
+                            Edited replacement text (max{' '}
+                            {MAX_DECISION_TEXT_LENGTH} chars)
+                          </label>
+                          <Textarea
+                            id={`edit-text-${finding.id}`}
+                            rows={2}
+                            maxLength={MAX_DECISION_TEXT_LENGTH}
+                            value={activeEditor.text}
+                            onChange={(e) =>
+                              setActiveEditor({
+                                ...activeEditor,
+                                text: e.target.value,
+                              })
+                            }
+                            disabled={isSubmittingCard}
+                          />
+                          <div className="flex flex-wrap items-center gap-2">
+                            <Button
+                              type="submit"
+                              size="sm"
+                              disabled={isSubmittingCard}
+                            >
+                              Save edit
+                            </Button>
+                            <Button
+                              type="button"
+                              variant="ghost"
+                              size="sm"
+                              disabled={isSubmittingCard}
+                              onClick={() => setActiveEditor(null)}
+                            >
+                              Cancel
+                            </Button>
+                          </div>
+                        </form>
+                      ) : null}
+
+                      {isRejectingThis ? (
+                        <form
+                          onSubmit={(e) => {
+                            e.preventDefault();
+                            submitDecision(finding, 'rejected', {
+                              comment: activeEditor.text,
+                            });
+                          }}
+                          className="flex flex-col gap-2 rounded-md border border-border bg-card p-3"
+                        >
+                          <label
+                            htmlFor={`reject-reason-${finding.id}`}
+                            className="text-xs font-medium text-foreground"
+                          >
+                            Rejection reason (required, max{' '}
+                            {MAX_DECISION_TEXT_LENGTH} chars)
+                          </label>
+                          <Textarea
+                            id={`reject-reason-${finding.id}`}
+                            rows={2}
+                            maxLength={MAX_DECISION_TEXT_LENGTH}
+                            placeholder="Explain why this finding does not apply..."
+                            value={activeEditor.text}
+                            onChange={(e) =>
+                              setActiveEditor({
+                                ...activeEditor,
+                                text: e.target.value,
+                              })
+                            }
+                            disabled={isSubmittingCard}
+                          />
+                          <div className="flex flex-wrap items-center gap-2">
+                            <Button
+                              type="submit"
+                              size="sm"
+                              variant="destructive"
+                              disabled={isSubmittingCard}
+                            >
+                              Confirm reject
+                            </Button>
+                            <Button
+                              type="button"
+                              variant="ghost"
+                              size="sm"
+                              disabled={isSubmittingCard}
+                              onClick={() => setActiveEditor(null)}
+                            >
+                              Cancel
+                            </Button>
+                          </div>
+                        </form>
+                      ) : null}
+
+                      {cardError ? (
+                        <p
+                          role="alert"
+                          className="rounded-md border border-severity-critical-border bg-severity-critical-bg px-3 py-2 text-xs text-severity-critical-fg"
+                        >
+                          {cardError}
+                        </p>
+                      ) : null}
                     </article>
                   </li>
                 );
