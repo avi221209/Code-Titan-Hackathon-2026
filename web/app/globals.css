@@ -12,7 +12,7 @@
   --text-muted: #5A6270;
   --accent-teal: #0F6B6B;
   --accent-teal-foreground: #FFFFFF;
-  --border-subtle: #E4DFD5;
+  --border-subtle: #888378;
   --focus-ring: #0F6B6B;
 
   /* Severity Tokens — Crimson, Burnt Orange, Amber, Slate */
@@ -55,7 +55,7 @@
   --text-muted: #9BA3AF;
   --accent-teal: #1FB2B2;
   --accent-teal-foreground: #0D1117;
-  --border-subtle: #2A2F38;
+  --border-subtle: #6C7482;
   --focus-ring: #2DD4BF;
 
   --sev-critical-fg: #FCA5A5;

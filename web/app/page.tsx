@@ -1,5 +1,6 @@
 import type { Metadata } from 'next';
 import Link from 'next/link';
+import { SkipLink } from '@/components/skip-link';
 import { Card, CardContent, CardHeader } from '@/components/ui/card';
 
 export const metadata: Metadata = {
@@ -10,7 +11,13 @@ export const metadata: Metadata = {
 
 export default function HomePage() {
   return (
-    <main className="mx-auto flex min-h-[100dvh] max-w-3xl items-center px-6 py-12">
+    <>
+      <SkipLink />
+      <main
+        id="main-content"
+        tabIndex={-1}
+        className="mx-auto flex min-h-[100dvh] max-w-3xl items-center px-6 py-12 focus:outline-none"
+      >
       <Card className="w-full">
         <CardHeader>
           <h1 className="font-serif text-3xl font-semibold leading-tight tracking-tight text-foreground">
@@ -20,9 +27,9 @@ export default function HomePage() {
         <CardContent className="flex flex-col gap-6">
           <p className="text-base leading-relaxed text-muted-foreground">
             Evidence-backed brand compliance workspace with workspace-isolated
-            knowledge (rules, facts, terminology) and draft persistence under
-            Row-Level Security. Automated compliance review runs and decision
-            workflows arrive in M2–M3.
+            rules, approved facts, controlled terminology, deterministic and
+            AI-assisted compliance checks, human decision gates, and immutable
+            audit history under Row-Level Security.
           </p>
           <div className="flex flex-wrap gap-3">
             <Link
@@ -41,5 +48,6 @@ export default function HomePage() {
         </CardContent>
       </Card>
     </main>
+    </>
   );
 }

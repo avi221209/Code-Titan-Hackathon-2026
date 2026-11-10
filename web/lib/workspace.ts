@@ -1,5 +1,9 @@
 import 'server-only';
 import { cache } from 'react';
+import {
+  getCachedPublicJwks,
+  getVerifiedClaimsUser,
+} from '@/lib/supabase/claims';
 import { createClient } from '@/lib/supabase/server';
 
 export type WorkspaceRole = 'creator' | 'manager' | 'approver' | 'admin';
@@ -29,10 +33,10 @@ interface WorkspaceRelationRow {
 }
 
 export const getWorkspaceContext = cache(async (): Promise<WorkspaceContext> => {
-  if (
-    !process.env.NEXT_PUBLIC_SUPABASE_URL ||
-    !process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
-  ) {
+  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
+  const anonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
+
+  if (!supabaseUrl || !anonKey) {
     return {
       user: null,
       workspace: null,
@@ -40,13 +44,16 @@ export const getWorkspaceContext = cache(async (): Promise<WorkspaceContext> => 
     };
   }
 
-  const supabase = await createClient();
-  const {
-    data: { user },
-    error: userError,
-  } = await supabase.auth.getUser();
+  const [supabase, jwks] = await Promise.all([
+    createClient(),
+    getCachedPublicJwks(supabaseUrl, anonKey),
+  ]);
+  const user = await getVerifiedClaimsUser({
+    auth: supabase.auth,
+    jwks,
+  });
 
-  if (userError || !user) {
+  if (!user) {
     return { user: null, workspace: null, queryError: null };
   }
 

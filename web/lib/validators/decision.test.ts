@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import {
   MAX_DECISION_TEXT_LENGTH,
   applyAcceptedEditsToDocument,
+  canAcceptOrEditFinding,
   validateDecisionInput,
 } from './decision.ts';
 
@@ -148,3 +149,91 @@ test('applyAcceptedEditsToDocument skips overlapping replacements without corrup
   assert.equal(preview.appliedCount, 1);
   assert.equal(preview.skippedOverlapCount, 1);
 });
+
+test('applyAcceptedEditsToDocument edits the 2nd repeated occurrence under legacy surrogate shift and refuses ambiguous duplicates', () => {
+  const doc = '🚀🎉 First consumers read this, second consumers buy this.';
+  const secondIdx = doc.lastIndexOf('consumers');
+  const legacyShifted = secondIdx - 2;
+
+  const fixed = applyAcceptedEditsToDocument(doc, [
+    {
+      id: 's-2nd',
+      severity: 'medium',
+      matched_text: 'consumers',
+      start_offset: legacyShifted,
+      end_offset: legacyShifted + 'consumers'.length,
+      decision: 'accepted',
+      replacementText: 'customers',
+    },
+  ]);
+
+  assert.equal(
+    fixed.text,
+    '🚀🎉 First consumers read this, second customers buy this.'
+  );
+  assert.equal(fixed.appliedCount, 1);
+  assert.equal(fixed.skippedUnmatchedCount, 0);
+
+  const ambiguous = applyAcceptedEditsToDocument(
+    'consumers here and consumers there.',
+    [
+      {
+        id: 's-ambig',
+        severity: 'medium',
+        matched_text: 'consumers',
+        start_offset: 50,
+        end_offset: 59,
+        decision: 'accepted',
+        replacementText: 'customers',
+      },
+    ]
+  );
+
+  assert.equal(ambiguous.text, 'consumers here and consumers there.');
+  assert.equal(ambiguous.appliedCount, 0);
+  assert.equal(ambiguous.skippedUnmatchedCount, 1);
+});
+
+test('canAcceptOrEditFinding enforces High/Critical evidence gate and blocks null suggested_text', () => {
+  assert.equal(
+    canAcceptOrEditFinding({
+      severity: 'critical',
+      evidenceWasOpened: false,
+      suggestedText: 'revised',
+    }),
+    false
+  );
+  assert.equal(
+    canAcceptOrEditFinding({
+      severity: 'high',
+      evidenceWasOpened: false,
+      suggestedText: 'revised',
+    }),
+    false
+  );
+  assert.equal(
+    canAcceptOrEditFinding({
+      severity: 'high',
+      evidenceWasOpened: true,
+      suggestedText: null,
+    }),
+    false
+  );
+  assert.equal(
+    canAcceptOrEditFinding({
+      severity: 'high',
+      evidenceWasOpened: true,
+      suggestedText: 'revised',
+    }),
+    true
+  );
+  assert.equal(
+    canAcceptOrEditFinding({
+      severity: 'medium',
+      evidenceWasOpened: false,
+      suggestedText: 'revised',
+    }),
+    true
+  );
+});
+

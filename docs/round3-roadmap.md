@@ -18,8 +18,8 @@ Each improvement below explicitly separates **what exists and is verified today*
 ## 2. Trust Layer (Calibration & Model-Call Traceability)
 
 - **Exists Today:**
-  - Deterministic-first execution pairs every finding with `verification_status` (`verified` vs `unverified`), `origin` (`deterministic` vs `llm` rendered as `AI-generated`), and confidence explicitly labeled `Confidence: X% (estimate)`.
-  - Hallucinated LLM quotes not matching document substrings are discarded (`dropped` counter), High/Critical findings lock **Accept** behind clicking **Inspect evidence**, degraded AI runs surface explicit `AiStatusBanner` states, and `/documents/[id]/history` renders a chronological audit trail.
+  - Deterministic-first execution pairs every finding with `verification_status` (`verified` vs `unverified`), `origin` (`deterministic` vs `llm` rendered as `AI-generated`), and confidence explicitly labeled `Confidence: X% (estimate)` (bounded `[0..1]`), verified both on UTF-16 spans and semantic workspace rule category/severity alignment (`verify()`).
+  - Hallucinated or excess truncated LLM quotes are accounted for explicitly (`dropped` counter), High/Critical findings lock **both Accept and Edit** behind clicking **Inspect evidence**, degraded AI runs surface explicit `AiStatusBanner` states without leaking raw exception class names, and `/documents/[id]/history` renders a chronological audit trail backed by transactional `record_review_decision(...)` persistence (`0004`).
   - **Confidence calibration and detailed model-call traceability are NOT built** (only `model_name`, `ai_status`, `ai_detail`, `elapsed_ms`, and `dropped` are stored per run).
 - **Next (Round 3):**
   - **Confidence calibration:** Replace static heuristics (`0.99` / `0.95` / `0.90` / `0.60`) with calibrated empirical precision intervals derived from historical human `accepted` vs `rejected`/`dismissed` outcomes.
@@ -30,9 +30,10 @@ Each improvement below explicitly separates **what exists and is verified today*
 ## 3. Multimodal & Accessibility Expansion
 
 - **Exists Today:**
-  - The Python checking service (`ai-service/main.py`) separates input models (`ReviewRequest`), modular checker functions (`check_terminology`, `check_facts`, `check_rules`, `run_llm`), and the evidence verifier (`verify()`) from persistence and UI rendering, keeping the checker interface extensible.
-  - The reviewer UI implements WCAG AA contrast tokens, `<h1>` landmarks, reduced-motion transitions, keyboard finding navigation (`j` / `k`), and screen-reader `aria-live` status announcements.
+  - The Python checking service (`ai-service/main.py`) separates input models (`ReviewRequest`), modular checker functions (`check_terminology`, `check_facts`, `check_rules`, `run_llm`), and the semantic evidence verifier (`verify()`) from persistence and UI rendering, keeping the checker interface extensible.
+  - The reviewer UI implements WCAG 2.1 AA text & non-text border contrast tokens (`>= 3.2:1`), skip-to-main navigation (`<SkipLink />`), `<h1>` landmarks, reduced-motion transitions, keyboard finding navigation (`j` / `k`), and screen-reader `aria-live` status announcements.
   - **Only plain text (`<= 6,000` chars) is analyzed today** (**PDF/DOCX ingestion and image or logo checks are NOT built**).
 - **Next (Round 3):**
   - Add extraction adapters for **PDF / DOCX** documents and multi-section web pages mapping normalized text blocks back to source page/paragraph coordinates.
   - Introduce **image/logo/alt-text & visual accessibility** analyzers (brand asset verification, color-contrast and missing alt-text checks) emitting structured evidence into the same `Finding` contract and human decision gate.
+

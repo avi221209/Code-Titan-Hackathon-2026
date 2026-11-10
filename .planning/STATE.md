@@ -1,47 +1,35 @@
 # BrandGuardian — Project State
 
-**Last Updated:** 2026-11-10  
-**Current Milestone:** M3 — Human Workflow (`POST /api/suggestions/[id]/decision`, Decision Actions, Final-Text Preview, Audit History)  
-**Milestone Status:** CODE + STATIC/UNIT/AUTH/UI STRUCTURE VERIFIED (`USER-RUN` pending `SUPABASE_SERVICE_ROLE_KEY` & `AI_SERVICE_TOKEN` for live DB review + decision + audit persistence E2E)  
-**Next Phase:** Phase D QA Round & Tier B/Missing-Env Handoff
+**Last Updated:** `2026-11-10T09:40:00+05:30` (IST)  
+**Base Commit:** `03a9c96c32f067936c632c779a60681923a86afe` (`main`, `brandguardian/`)  
+**Current Phase:** Complete Reliability Remediation Implemented & Verified Locally (Working Tree Uncommitted — Not Committed/Pushed per Operating Mode)  
+**Overall Release Verdict:** **`CONDITIONALLY READY (CODE REMEDIATED — AWAITING USER-RUN SQL, LIVE E2E & CLOUD DEPLOY)`**
 
 ---
 
-## Reality Check (M2 + M3 Empirical Verification)
+## Executive Summary
 
-- **Repository & Branch:** `E:/Plugins/Get Shit Done/Code Titan 2026/brandguardian` on `main`.
-- **AI Service (`ai-service/`):**
-  - `ai-service/main.py` untouched (`12 passed in 0.44s` via `.\ai-service\.venv\Scripts\python.exe -m pytest -q ai-service`).
-  - Detached `uvicorn` running on `http://127.0.0.1:8000` (`GET /health` → `200`, `provider: "groq"`, `llm_configured: true`, `model: "openai/gpt-oss-20b"`).
-- **Web (`web/`):**
-  - `pnpm --dir web typecheck` & `--noUnusedLocals --noUnusedParameters`: **exit 0**.
-  - `pnpm --dir web test`: **17/17 passed** (`m1.test.ts` 5 + `review.test.ts` 7 + `decision.test.ts` 4 + `security.test.mjs` 1).
-  - `pnpm --dir web build`: **exit 0** (`102 kB` shared First Load JS, `/documents/[id]` `10.5 kB` / `125 kB`, `/documents/[id]/history` `168 B` / `106 kB`, `/api/suggestions/[id]/decision` dynamic `ƒ`).
-  - Production server checks on `:3100` (`supabase_configured: true`, `ai_service_configured: true`):
-    - M2: `/api/review` `GET` → `405`, unauth `POST` → `401`, invalid JSON/UUID → `400`, missing doc → `404`, two-pane UI at `1440px` & `375px` (`0` overflow), honest `503` UI error when server secrets unset.
-    - M3: `/api/suggestions/<uuid>/decision` `GET` → `405`, unauth `POST` (valid & invalid UUID) → `401`, authenticated invalid UUID / JSON / enum / empty `editedText` / empty `comment` / `>500` chars → `400`, missing suggestion UUID → `404`; `/documents/[id]/history` `<h1>Document Audit History</h1>`, honest empty/event state, `0` overflow (`1440px` & `375px`), `0` console/page errors.
-  - `git grep -n "audit_events" web/`: zero user-client inserts; all `audit_events` writes use `createAdminClient()` (`review.completed`, `decision.recorded`, `document.reviewed`).
-  - Secret grep across `.next/static/**/*.js` and `'use client'` modules: **0 hits**.
+All targeted application, AI-service, accessibility, lint/audit, and SQL-migration code defects (`[DEF-09]`, `[DEF-11]`, `[DEF-12]`, `[DEF-14]`–`[DEF-23]`) have been implemented and verified in the local working tree:
+- **Tests & Build Gates (`Agent`):** `pytest` **`19/19`** (`0.52s`), `tsc --noEmit` & `--noUnusedLocals --noUnusedParameters` **`exit 0`**, `pnpm lint` **`0` warnings/errors**, `pnpm test` **`34/34`** (`367.28ms`), `pnpm audit --json` **`0` advisories** (`exit 0`), local `next build` & isolated clean-checkout build **`exit 0`** (`102 kB` shared JS), `0` client secrets across `35` compiled JS chunks, `24/24` Playwright 4-viewport matrix pass, **`HTTP 404`** on invalid/missing UUIDs, `/dashboard` median SSR improved **`2143.7 ms -> 1351.5 ms`** (`first_login_redirect_ms: 6472.2 -> 1600.2 ms`), `verify_phase6.py` **`6/6`**, `verify_ai_trust_after.py` **`100%` det precision (`0` FP)**.
+- **Strict Operating Constraints Honored:** Zero commits created, zero pushes performed, zero cloud deployments attempted, zero SQL applied to live Supabase, zero `.env*` files read/printed, and existing user processes on ports `3000` / `8000` left untouched.
 
-## M2 Acceptance Matrix
+---
 
-| # | Criterion | Status | Evidence / Notes |
+## Updated Phase Scorecard (Post-Remediation, `2026-11-10`)
+
+| Phase / Area | Remediation Report | Current Empirical Status | Summary of Final State |
 | --- | --- | --- | --- |
-| 1 | Seeded Asterra copy saves expected findings (`consumers`, `founded in 2019`, `cheapest and best`, `guarantee 300%...`) | **USER-RUN** | Code/validator/UI implemented; blocked on live DB write because `SUPABASE_SERVICE_ROLE_KEY` (`web/.env.local`) & `AI_SERVICE_TOKEN` (`ai-service/.env`, `web/.env.local`) are unset |
-| 2 | Deterministic findings show `verified`; AI findings without valid `rule_id` show `unverified` | **USER-RUN** | Enforced in `ai-service/main.py` (`pytest` 12/12) + `validateReviewResponse` + `VerificationBadge`; live DB E2E blocked on missing server secrets |
-| 3 | FastAPI unreachable: run marks `failed` with clear error, `0` findings, no stuck `running` | **USER-RUN** | `markRunFailed` rollback implemented in `web/app/api/review/route.ts`; `:3101` `AI_SERVICE_URL=http://127.0.0.1:9` returned `/api/health` `200`, DB-write test blocked on `SUPABASE_SERVICE_ROLE_KEY` |
-| 4 | Wrong `GROQ_API_KEY`: deterministic findings complete + honest `AiStatusBanner` | **USER-RUN** | Requires user temporarily testing an invalid `GROQ_API_KEY` after setting server secrets |
-| 5 | Prompt injection leaves deterministic findings unchanged | **USER-RUN** | Guaranteed by `ai-service` (`pytest` tag-breakout + deterministic path); live DB run awaits server secrets |
-| 6 | Hard refresh retains findings; concurrent double-click creates one run (`409` guard) | **USER-RUN** | Client `inFlightRef` lock + `90s` `classifyRunningReviews` (`4/4` unit tests) + server post-insert tie-break implemented; live DB run awaits server secrets |
-| 7 | `pnpm build`, `tsc --noEmit`, `pnpm test`, `pytest`, secret grep clean | **PASS** | Verified empirically (`17/17` web tests, `12/12` pytest, `0` static/client secret hits) |
+| **0. Baseline, Lint & Clean Build** | [`.planning/REMEDIATION_TEST_EVIDENCE.md`](REMEDIATION_TEST_EVIDENCE.md) | **`PASS`** | `pytest 19/19`, `tsc` clean, `pnpm lint` clean, `pnpm test 34/34`, `pnpm audit` `0` advisories (`pnpm-workspace.yaml`), local + clean-checkout `next build` `exit 0`. |
+| **1. Schema & Contract Parity** | [`.planning/REMEDIATION_REPORT.md`](REMEDIATION_REPORT.md) | **`PASS` (App) / `USER-RUN` (SQL `CHECK`s)** | `edited`/`suggested_text === null`, UTF-16 offsets, bounded confidence, docs parity (`[DEF-18]`, `[DEF-22]`) fixed in code; `0004` DB `CHECK`s await `USER-RUN` apply. |
+| **2. AI Trust & Grounding** | [`.planning/AI_TRUST_AUDIT.md`](AI_TRUST_AUDIT.md) | **`PASS` (Synthetic) / `USER-RUN` (Live Groq)** | `100%` det precision (`best(?!\s+practices\b)`), semantic `verify()`, duplicate `cursor_by_quote`, UTF-16 alignment, `dropped` truncation, active Facts/Terms prompt (`[DEF-16]`–`[DEF-18]`). Live Groq precision/latency awaits `USER-RUN`. |
+| **3. API Failure Matrix & Health** | [`.planning/API_FAILURE_MATRIX.md`](API_FAILURE_MATRIX.md) | **`PASS` (Unit/Mock) / `USER-RUN` (Live RPC/DB)** | Sanitized `format_llm_unavailable_detail()`, `/ready`, 5-key `/api/health?probe=1`, structured logs & rate limits, transactional `record_review_decision` workflow (`[DEF-15]`, `[DEF-19]`, `[DEF-20]`). Live RPC awaits `0004` (`USER-RUN`). |
+| **4. Security & RLS Isolation** | [`.planning/SECURITY_AUDIT.md`](SECURITY_AUDIT.md) | **`PASS` (App/`0002`) / `USER-RUN` (`0003`/`0004`)** | `0` client secrets, clean headers, `rls_checks.sql` `7/7` (`0002`). Executing `decision_rls.sql`, `0003_audit_server_only.sql`, `0004_remediation_integrity_and_rpc.sql`, and `remediation_checks.sql` (`h–o`) is **`USER-RUN`**. |
+| **5. Human Decision Workflow** | [`.planning/REMEDIATION_REPORT.md`](REMEDIATION_REPORT.md) | **`PASS` (App) / `USER-RUN` (Live RPC)** | High/Critical Evidence gate locks both **Accept** & **Edit**; transactional `executeDecisionWorkflow()` + `0004` RPC eliminates split-write `409` lockouts (`[DEF-15]`, `[DEF-18]`). |
+| **6. UI, WCAG & 4-Viewport Perf** | [`.planning/REMEDIATION_TEST_EVIDENCE.md`](REMEDIATION_TEST_EVIDENCE.md) | **`PASS`** *(Saved-doc UI route `USER-RUN`)* | WCAG 1.4.11 `--border-subtle` `>= 3.2:1`, `<SkipLink />`, non-nested `#N` focus, `HTTP 404` on invalid/missing UUIDs, `1351.5 ms` `/dashboard` median, `24/24` viewport checks (`0` overflow / `0` console errors). |
+| **7. Deployment & Hosting Prep** | [`.planning/DEPLOYMENT_READINESS.md`](DEPLOYMENT_READINESS.md) | **`PASS` (Repo) / `USER-RUN` (Cloud/Docker)** | Clean repo build, non-root `Dockerfile`, `GROQ_URL` in `.env.example`, `/ready` probe. Docker build, Vercel `60s` Fluid Compute, Render/Railway deploy, key rotation & incognito test remain **`USER-RUN`**. |
 
-## M3 Acceptance Matrix
+---
 
-| # | Criterion | Status | Evidence / Notes |
-| --- | --- | --- | --- |
-| 1 | `POST /api/suggestions/[id]/decision` auth (`401`), validation (`400`), `404`, RLS insert (`42501` -> `403`, `23505` -> `409`), admin status + `decision.recorded` audit | **PARTIAL / USER-RUN** | Route/method/auth/validation/missing checks verified **PASS** on `:3100` (`405`/`401`/`400`/`404`); live RLS `409` duplicate decision & persistence remain **USER-RUN** pending `SUPABASE_SERVICE_ROLE_KEY` & `AI_SERVICE_TOKEN` |
-| 2 | Findings UI actions (`Accept`/`Edit`/`Reject`/`Dismiss`), High/Critical Accept gate until Evidence opened, no-`suggested_text` hides Accept/Edit, role notice | **PARTIAL / USER-RUN** | Component logic & negative guards implemented cleanly; live finding click-through (`Accept` gate unlock, hard refresh persistence) awaits seeded completed review run (`USER-RUN`) |
-| 3 | Every suggestion decided on latest completed run sets `documents.status = 'reviewed'` + `'document.reviewed'` audit | **USER-RUN** | Implemented via `admin` in `decision/route.ts`; live DB transition awaits `SUPABASE_SERVICE_ROLE_KEY` |
-| 4 | `"Preview final text"` read-only end-to-start offset preview + Copy button (`applyAcceptedEditsToDocument`) | **PASS (Unit) / USER-RUN (Live UI)** | `4/4` unit tests in `decision.test.ts` (UTF-16 emoji fallback, overlap skipping, end-to-start edits); live UI click awaits live findings |
-| 5 | `/documents/[id]/history` renders chronological `audit_events` + actor names + honest empty state | **PASS** | Verified on `:3100` (`<h1>Document Audit History</h1>`, honest empty state, `0` console errors, `0` overflow at `1440px` & `375px`); live event rows await DB review/decision writes |
-| 6 | `supabase/tests/decision_rls.sql` & `supabase/migrations/0003_audit_server_only.sql` created (NOT applied) | **USER-RUN** | SQL files written & committed; run `decision_rls.sql` in SQL Editor, and apply `0003_audit_server_only.sql` **only after a decision test passes** |
+## Mandatory Next Actions (`USER-RUN`)
+
+See [`.planning/REMAINING_USER_RUN.md`](REMAINING_USER_RUN.md) for the exact step-by-step sequence (review diffs -> Supabase SQL `decision_rls.sql` -> `0003` -> **`0004`** -> `remediation_checks.sql` -> commit & push -> Docker/Cloud deploy -> fill URL/placeholder fields -> live E2E & T-15 min incognito check).

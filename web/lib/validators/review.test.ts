@@ -234,3 +234,31 @@ test('buildHighlightedDocumentSegments preserves exact document text with emoji 
   assert.deepEqual(highlightedIds, ['f-high', 'f-med']);
 });
 
+test('resolveHighlightSpan disambiguates repeated substrings by surrogate-bounded distance and rejects ambiguous duplicates', () => {
+  const doc =
+    '🚀🎉 Intro consumers enjoy it, and later consumers return.';
+  const secondUtf16 = doc.lastIndexOf('consumers');
+  // Simulated legacy Python code-point offset shifted by 2 astral emojis (-2 code units):
+  const shiftedSecond = secondUtf16 - 2;
+
+  const resolvedSecond = resolveHighlightSpan(doc, {
+    matched_text: 'consumers',
+    start_offset: shiftedSecond,
+    end_offset: shiftedSecond + 'consumers'.length,
+  });
+
+  assert.deepEqual(resolvedSecond, {
+    start: secondUtf16,
+    end: secondUtf16 + 'consumers'.length,
+    via: 'indexOf',
+  });
+
+  // Ambiguous offset outside surrogate shift bounds across duplicate matches must return null
+  const ambiguous = resolveHighlightSpan('consumers one and consumers two', {
+    matched_text: 'consumers',
+    start_offset: 12,
+    end_offset: 21,
+  });
+  assert.equal(ambiguous, null);
+});
+

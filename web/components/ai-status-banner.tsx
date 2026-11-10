@@ -47,6 +47,30 @@ export interface AiStatusBannerProps {
   className?: string;
 }
 
+const RAW_PYTHON_EXCEPTION_NAMES = new Set([
+  'HTTPStatusError',
+  'OSError',
+  'ReadTimeout',
+  'ConnectError',
+  'ConnectTimeout',
+  'TimeoutException',
+  'TimeoutError',
+]);
+
+function formatBannerDetail(
+  aiDetail: string | null | undefined,
+  fallback: string
+): string {
+  if (!aiDetail) {
+    return fallback;
+  }
+  const trimmed = aiDetail.trim();
+  if (RAW_PYTHON_EXCEPTION_NAMES.has(trimmed)) {
+    return fallback;
+  }
+  return trimmed;
+}
+
 export function AiStatusBanner({
   aiStatus,
   aiDetail,
@@ -54,6 +78,7 @@ export function AiStatusBanner({
   className,
 }: AiStatusBannerProps) {
   const { title, description, tone, Icon } = STATUS_META[aiStatus];
+  const displayDetail = formatBannerDetail(aiDetail, description);
 
   return (
     <div
@@ -72,7 +97,7 @@ export function AiStatusBanner({
             <span className="font-mono text-xs opacity-80">{modelName}</span>
           ) : null}
         </div>
-        <p className="text-xs opacity-90">{aiDetail || description}</p>
+        <p className="text-xs opacity-90">{displayDetail}</p>
       </div>
     </div>
   );

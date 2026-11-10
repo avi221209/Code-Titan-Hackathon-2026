@@ -1,5 +1,9 @@
 import { createServerClient, type CookieOptions } from '@supabase/ssr';
 import { NextResponse, type NextRequest } from 'next/server';
+import {
+  getCachedPublicJwks,
+  getVerifiedClaimsUser,
+} from '@/lib/supabase/claims';
 import { isAuthRoute, isProtectedPath } from '@/lib/validators/m1';
 
 function copyCookies(source: NextResponse, target: NextResponse): NextResponse {
@@ -42,10 +46,13 @@ export async function middleware(request: NextRequest) {
     },
   });
 
-  // Always verify session integrity via getUser() rather than trusting cookie claims alone.
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+  // Verify JWT signature & claims locally via cached JWKS when asymmetric keys are active
+  // (and fall back cleanly via auth.getClaims when legacy symmetric signing is active).
+  const jwks = await getCachedPublicJwks(url, anonKey);
+  const user = await getVerifiedClaimsUser({
+    auth: supabase.auth,
+    jwks,
+  });
 
   if (isProtectedPath(pathname) && !user) {
     const redirectResponse = NextResponse.redirect(

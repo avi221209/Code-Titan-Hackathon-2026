@@ -47,6 +47,20 @@ export function canRoleRecordDecision(
   return Boolean(role && DECISION_ROLES.has(role));
 }
 
+export function canAcceptOrEditFinding(input: {
+  severity: Severity;
+  evidenceWasOpened: boolean;
+  suggestedText: string | null;
+}): boolean {
+  if (input.suggestedText === null) {
+    return false;
+  }
+  if (input.severity === 'high' || input.severity === 'critical') {
+    return input.evidenceWasOpened;
+  }
+  return true;
+}
+
 export function validateDecisionInput(
   payload: unknown
 ): ValidationResult<ValidatedDecisionInput> {
@@ -188,3 +202,4 @@ export function applyAcceptedEditsToDocument(
     skippedUnmatchedCount,
   };
 }
+

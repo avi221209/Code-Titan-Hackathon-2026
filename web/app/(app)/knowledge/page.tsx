@@ -117,6 +117,17 @@ export default async function KnowledgePage() {
     const guideline = Array.isArray(row.guidelines)
       ? row.guidelines[0]
       : row.guidelines;
+    const guidelineStatus = guideline?.status ?? 'approved';
+    const effectivelyApproved =
+      row.approved && guidelineStatus === 'approved';
+    const statusLabel = !row.approved
+      ? 'Draft'
+      : guidelineStatus === 'archived'
+        ? 'Guideline archived'
+        : guidelineStatus !== 'approved'
+          ? 'Guideline draft'
+          : 'Approved';
+
     return {
       id: row.id,
       category: row.category,
@@ -124,8 +135,8 @@ export default async function KnowledgePage() {
       severity: row.severity,
       suggestion: row.suggestion,
       sourceName: guideline?.title ?? 'Workspace guidelines',
-      statusLabel: row.approved ? 'Approved' : 'Draft',
-      approved: row.approved,
+      statusLabel,
+      approved: effectivelyApproved,
     };
   });
 

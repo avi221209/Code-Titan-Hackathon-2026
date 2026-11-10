@@ -1,136 +1,104 @@
-# BrandGuardian — Defect Log (QA-Fix Loop)
+# BrandGuardian — Defect Log (QA-Fix & Reliability Remediation Register)
 
-**Last Updated:** 2026-11-10T06:26:00+05:30  
-**Severity Rules:**
-- **P0:** Blocks core workflow or introduces security vulnerability
-- **P1:** Breaks an existing feature or acceptance criterion / security hardening / WCAG violation
-- **P2:** Polish, documentation honesty, non-blocking DX/UX issue
-
-**Fix Tiers:**
-- **Tier A:** Autonomous fix -> failing test/repro -> minimal fix -> re-test -> full suite -> commit `fix(<area>): <what>  [DEF-nn]`
-- **Tier B:** Diagnose, document root cause & proposed diff, **STOP for `"APPROVED"`** (`supabase/`, middleware/auth logic, contract, `ai-service/main.py`, dependencies, deletions, git history)
+**Last Updated:** 2026-11-10T09:40:00+05:30  
+**Base Commit:** `03a9c96c32f067936c632c779a60681923a86afe` (`main`, `brandguardian/`, uncommitted working tree ready for review)  
+**Strict Classification Legend:** **`FIXED`** · **`BLOCKED`** · **`USER-RUN`** · **`DEFERRED`** · **`OPEN`**
 
 ---
 
-## Defect Register
+## Summary Status Table (`[DEF-01]` – `[DEF-23]`)
 
-### Fixed (Tier A — Committed)
-
-### `[DEF-01]` — Root `/` landing page displayed stale M0 copy and lacked an `<h1>` landmark
-- **Severity:** `P1` | **Tier:** `Tier A` | **Layer:** L6, L7, L9 | **Status:** `FIXED (f6b890c)`
-- **Before Evidence:** `GET http://127.0.0.1:3000/` rendered `"Evidence-backed brand compliance workspace scaffolded in M0; authentication, database integration, and review workflows arrive in M1 through M3."` and `h1Count: 0` (`<h2>BrandGuardian</h2>`).
-- **Root Cause:** `web/app/page.tsx` retained M0 placeholder copy and used `<CardTitle>` (`<h2>`).
-- **Fix Applied:** Updated copy in `web/app/page.tsx` to describe M1 features accurately (auth, RLS workspace knowledge, draft creation; M2/M3 review pending) and rendered `<h1>BrandGuardian</h1>`.
-- **After Evidence (Round 2):** `has_stale_m0: false`, `h1Count: 1`, `h1Texts: ["BrandGuardian"]`, `title: "BrandGuardian — Brand Compliance Workspace"`, `overflow: false`.
-
-### `[DEF-02]` — `/documents/[id]/history` accepted invalid UUIDs (`HTTP 200`), lacked auth/workspace doc validation, missed `<h1>`, and lacked navigation
-- **Severity:** `P1` | **Tier:** `Tier A` | **Layer:** L3, L6, L7 | **Status:** `FIXED (9d0d94f)` *(note side effect logged separately as Tier B `[DEF-12]` after `[DEF-04]`)*
-- **Before Evidence:** `GET /documents/not-a-uuid/history` returned `HTTP 200`, rendered `<h2>Document Audit History</h2>` (`h1Count: 0`), and had no Back navigation link.
-- **Root Cause:** `web/app/(app)/documents/[id]/history/page.tsx` was an unvalidated M0 stub without `isUuid(id)`, `getWorkspaceContext()`, RLS `documents` lookup, `<h1>`, or navigation link.
-- **Fix Applied:** Added `isUuid(id)` -> `notFound()`, `getWorkspaceContext()`, `createClient()` `.from('documents').select('id, title')...` (`notFound()` if missing), semantic `<h1>Document Audit History</h1>`, `"Back to document"` link, and honest M3 placeholder note.
-- **After Evidence:** Commit `9d0d94f` verified true HTTP `404` on `/documents/not-a-uuid/history`; Round 2 verified `h1Count: 1` (`"Document Audit History"`), `has_back_link: true`, `has_m3_note: true`, and `<h1>Page not found</h1>` rendered for invalid/missing UUIDs (streaming `HTTP 200` status logged as Tier B `[DEF-12]`).
-
-### `[DEF-03]` — `error.tsx` exposed raw `error.message` to clients and `error.tsx`/`not-found.tsx` missed `<h1>`
-- **Severity:** `P1` | **Tier:** `Tier A` | **Layer:** L5(c), L7 | **Status:** `FIXED (eee77d0)`
-- **Before Evidence:** `web/app/error.tsx` rendered `{error.message || ...}` in client DOM; both `error.tsx` and `not-found.tsx` used `<CardTitle>` (`<h2>`, `h1Count: 0`).
-- **Root Cause:** Boundary UIs rendered raw exception message strings and `<CardTitle>` heading level 2.
-- **Fix Applied:** Replaced raw `{error.message}` in `web/app/error.tsx` with fixed fallback copy plus optional opaque `error.digest`, added `<h1>` to both `error.tsx` and `not-found.tsx`, added `"Return to Dashboard"` link and focus-visible button styling.
-- **After Evidence (Round 2):** `git grep "error.message" web` = 0 hits; `GET /nonexistent-route-qa` returns `HTTP 404` with `h1Count: 1` (`"Page not found"`).
-
-### `[DEF-04]` — Missing loading states across `(app)` routes & duplicate route `<title>` metadata
-- **Severity:** `P2` | **Tier:** `Tier A` | **Layer:** L6, L7, L8 | **Status:** `FIXED (3cf731c)` *(parent/`[id]` `loading.tsx` soft-404 status logged as Tier B `[DEF-12]`)*
-- **Before Evidence:** SSR navigations took `1.86–4.13s` without `loading.tsx` skeletons, and all pages shared `<title>BrandGuardian</title>`.
-- **Root Cause:** Route-segment `loading.tsx` boundaries and per-page `metadata.title` exports were omitted in M1.
-- **Fix Applied:** Added `title: { default: 'BrandGuardian', template: '%s | BrandGuardian' }` in `web/app/layout.tsx`, unique `metadata.title` on every route, and accessible `loading.tsx` skeletons (`role="status"`, `aria-busy="true"`, `<Skeleton />`).
-- **After Evidence (Round 2):** Unique titles verified on every route (`"BrandGuardian — Brand Compliance Workspace"`, `"Sign In | BrandGuardian"`, `"Dashboard | BrandGuardian"`, `"Knowledge Base | BrandGuardian"`, `"New Document | BrandGuardian"`, `"Document Draft | BrandGuardian"`, `"Document History | BrandGuardian"`).
-
-### `[DEF-05]` — `next.config.mjs` exposed `X-Powered-By: Next.js` and lacked `Content-Security-Policy` & `Permissions-Policy`
-- **Severity:** `P1` | **Tier:** `Tier A` | **Layer:** L5(d) | **Status:** `FIXED (a665b88)`
-- **Before Evidence:** Header probe returned `x-powered-by: "Next.js"`, `content-security-policy: null`, `permissions-policy: null`.
-- **Root Cause:** `web/next.config.mjs` omitted `poweredByHeader: false` and `Content-Security-Policy` / `Permissions-Policy` / `X-DNS-Prefetch-Control` headers.
-- **Fix Applied:** Added `poweredByHeader: false`, `Permissions-Policy: camera=(), microphone=(), geolocation=()`, `X-DNS-Prefetch-Control: off`, and environment-aware `Content-Security-Policy` (`buildCsp()`). Added unit test `web/lib/validators/security.test.mjs` (RED -> GREEN).
-- **After Evidence (Round 2):** `x-powered-by: null`, CSP & Permissions-Policy present on `/`, `/login`, and `/api/health`, `6/6` tests passing, and `csp_violations: []` in Chromium across all flows.
-
-### `[DEF-06]` — Stale M0 descriptions across `README.md`, `docs/limitations.md`, `docs/test-evidence.md`, and `.planning/STATE.md`
-- **Severity:** `P2` | **Tier:** `Tier A` | **Layer:** L9 | **Status:** `FIXED (4f31de7)`
-- **Before Evidence:** Docs still claimed M0-only scaffold / `/api/documents` returning `501` / `supabase_configured: false`.
-- **Root Cause:** Markdown documentation was not updated after M1 commit `e94ee70` and QA verification.
-- **Fix Applied:** Updated all 4 files to match verified M0+M1 reality, M2/M3 stubs (`501`), exact measured timings, and open Tier B / `USER-RUN` items honestly.
-- **After Evidence:** All internal file links verified (`True`), accurate M1 status and `USER-RUN` requirements recorded cleanly.
-
-### `[DEF-07]` — `POST /api/documents` queried `workspace_members` before validating JSON payload & failed `500` on NUL `\u0000` bytes
-- **Severity:** `P2` | **Tier:** `Tier A` | **Layer:** L2, L3, L8 | **Status:** `FIXED (09367e8)`
-- **Before Evidence:** Invalid JSON / array payloads incurred a remote Supabase `workspace_members` lookup (`710–1324 ms`), and `\u0000` NUL bytes in `title`/`content` passed validator validation (rejected by PostgreSQL `text` at insert time).
-- **Root Cause:** JSON parsing/validation executed after `getWorkspaceContext()`, and `validateDocumentInput` lacked a `\u0000` guard.
-- **Fix Applied:** Added RED->GREEN unit tests in `web/lib/validators/m1.test.ts` for array payloads and NUL bytes, added `\u0000` check in `web/lib/validators/m1.ts`, and moved JSON parsing + `validateDocumentInput` before `getWorkspaceContext()` in `web/app/api/documents/route.ts`.
-- **After Evidence (Round 2):** `{bad json`, `[]`, `\u0000` NUL byte, and `6001` chars all return `HTTP 400` in `254.2–319.3 ms` (down from `710–1324 ms` due to eliminated pre-validation DB query).
-
-### `[DEF-13]` — `README.md` and `docs/limitations.md` still reflected M1 status after M2/M3 shipped
-- **Severity:** `P2` | **Tier:** `Tier A` | **Layer:** L9 | **Status:** `FIXED (Phase D QA Round)`
-- **Before Evidence:** After commits `ea1ecdb` (M2) and `77b92e4` (M3), `README.md` still stated `"Current Milestone: M1"` / `"/api/review returns 501"`, and `docs/limitations.md` listed `M2–M3 Pending` and `[DEF-08]` as unfixed.
-- **Root Cause:** Documentation updates during M2/M3 updated `.planning/STATE.md` and `docs/test-evidence.md`, missing `README.md` and `docs/limitations.md`.
-- **Fix Applied:** Updated `README.md` and `docs/limitations.md` to document implemented M0–M3 routes/APIs, SQL migrations `0002` & `0003` (`USER-RUN`), missing server secret requirements (`SUPABASE_SERVICE_ROLE_KEY`, `AI_SERVICE_TOKEN`), fixed `[DEF-08]`, and open Tier B items (`[DEF-09]`, `[DEF-11]`, `[DEF-12]`).
-- **After Evidence:** All internal doc links and claims verified aligned with M3 code, build, and open Tier B register.
+| ID | Severity | Title & Scope | Status | Primary Evidence / Artifact |
+| --- | --- | --- | --- | --- |
+| **`[DEF-01]`** | `P1` | Root `/` copy & `<h1>` landmark | **`FIXED`** | Committed `f6b890c` (updated again for M2–M3 copy in `[DEF-22]`) |
+| **`[DEF-02]`** | `P1` | `/documents/[id]/history` auth, UUID check, `<h1>`, nav | **`FIXED`** | Committed `9d0d94f` (soft-404 side effect resolved in `[DEF-12]`) |
+| **`[DEF-03]`** | `P1` | `error.tsx` raw `error.message` & missing `<h1>` | **`FIXED`** | Committed `eee77d0`; verified `0` `error.message` hits in UI/app |
+| **`[DEF-04]`** | `P2` | Route loading states & `<title>` metadata | **`FIXED`** | Committed `3cf731c` (`loading.tsx` scoping fixed in `[DEF-12]`) |
+| **`[DEF-05]`** | `P1` | Security headers & CSP (`next.config.mjs`) | **`FIXED`** | Committed `a665b88`; `security.test.mjs` & header probe pass |
+| **`[DEF-06]`** | `P2` | Stale M0 documentation sync | **`FIXED`** | Committed `4f31de7` |
+| **`[DEF-07]`** | `P2` | `POST /api/documents` pre-validation & NUL byte guard | **`FIXED`** | Committed `09367e8`; `400` in `254–319 ms` |
+| **`[DEF-08]`** | `P2` | FastAPI `Depends(require_key)` `401` before `422` | **`FIXED`** | Committed `3727052`; `pytest` test 12 passes |
+| **`[DEF-09]`** | `P2` | ESLint script/config & `pnpm audit` `postcss`/`minimatch` advisories | **`FIXED`** | `web/package.json`, `web/.eslintrc.json`, `web/pnpm-workspace.yaml`; `pnpm lint` (`0` warnings/errors), `pnpm audit --json` (`exit 0`, **`0` advisories**) |
+| **`[DEF-10]`** | `P1` | Initial RLS hardening (`0002_rls_hardening.sql`) | **`FIXED`** | Committed `1db160f`; applied & verified `7/7` (`cases a–g`) by Project Owner (`USER-RUN`) |
+| **`[DEF-11]`** | `P1` | Protected SSR double `auth.getUser()` latency | **`FIXED`** | `web/lib/supabase/claims.ts`, `middleware.ts`, `workspace.ts`, `login/page.tsx`; Playwright `:3106` initial redirect `6472.2 ms -> 1600.2 ms`, `/dashboard` median `2143.7 ms -> 1351.5 ms` |
+| **`[DEF-12]`** | `P2` | Streaming `loading.tsx` `HTTP 200` soft-404 status | **`FIXED`** | Deleted `(app)/loading.tsx`, `(app)/documents/[id]/loading.tsx`, `(app)/documents/[id]/history/loading.tsx`; all 4 invalid/missing UUID probes return **`HTTP 404`** |
+| **`[DEF-13]`** | `P2` | M1 docs lag after M2/M3 shipped | **`FIXED`** | Committed prior QA round (`docs/` synced further in `[DEF-22]`) |
+| **`[DEF-14]`** | **`P1`** | Post-review `documents` immutability, `0003` audit lock, composite WS FKs, `PUBLIC`/`anon` revoke | **`USER-RUN`** | **Code & SQL complete in working tree:** `supabase/migrations/0003_audit_server_only.sql` & `0004_remediation_integrity_and_rpc.sql` + `remediation_checks.sql`; awaits manual Supabase SQL Editor execution |
+| **`[DEF-15]`** | **`P1`** | Transactional `record_review_decision` RPC & `uq_review_runs_one_running` guard | **`USER-RUN`** | **App & SQL complete in working tree:** `web/lib/server/{decision,review}-workflow.ts` (unit-tested `3/3` & `3/3`), `0004_remediation_integrity_and_rpc.sql`; awaits manual `0004` SQL Editor apply before live M3 writes |
+| **`[DEF-16]`** | **`P1`** | UTF-16 offset alignment, duplicate LLM quote cursor & ambiguity-safe preview edit | **`FIXED`** | `ai-service/main.py` (`build_utf16_index_map`, `cursor_by_quote`), `web/lib/validators/{review,decision}.ts`; `pytest 19/19`, `web test 34/34`, `verify_ai_trust_after.py` (`[[0, 9], [10, 19]]` distinct) |
+| **`[DEF-17]`** | **`P1`** | Semantic `verify()` rule checks, date/status filters & active Facts/Terms LLM context | **`FIXED`** | `ai-service/main.py` (`verify()`, `build_user_prompt()`), `review-workflow.ts`; `verify_ai_trust_after.py` (`poisoned -> unverified`), `review-workflow.test.ts` *(live Groq accuracy remains `USER-RUN`)* |
+| **`[DEF-18]`** | **`P1`** | Evidence gate on **Edit**, `edited` / `suggested_text === null` parity, bounded confidence, `dropped` truncation & DB `CHECK`s | **`FIXED`** | `canAcceptOrEditFinding()`, `document-review-workspace.tsx`, `validateDecisionInput()`, `ai-service/main.py` (`ge=0, le=1`, `dropped += max(0, len-5)`); SQL `CHECK`s included in `0004` (`USER-RUN` DB activation) |
+| **`[DEF-19]`** | `P2` | Sanitized upstream Python errors, `/ready` (`200`/`503`), 5-key `/api/health?probe=1` | **`FIXED`** | `format_llm_unavailable_detail()`, `/ready`, `AiStatusBanner`, `health-workflow.ts`; `verify_phase6.py` (`6/6` mock-HTTP checks) & `:3106` `/api/health?probe=1` |
+| **`[DEF-20]`** | `P2` | Structured redacting logs, rate limiters & cloud hosting timeout/warm-up readiness | **`USER-RUN`** | **App logging/rate-limits `FIXED` in code:** `logger.ts`, `rate-limit.ts` wired into `review`, `decision`, `documents`, `login/actions`. **Cloud Vercel `60s` Fluid Compute, Render/Railway warm-up & Docker build/run remain `USER-RUN`** |
+| **`[DEF-21]`** | `P2` | WCAG 1.4.11 border contrast, `<SkipLink />`, non-nested card focus, `Textarea` invalid border, Reject validation | **`FIXED`** | `globals.css` (`#888378` light / `#6C7482` dark `>= 3.20:1`), `skip-link.tsx`, `app-shell.tsx`, `page.tsx`, `login/page.tsx`, `not-found.tsx`, `error.tsx`, `textarea.tsx`, `document-review-workspace.tsx`; `accessibility.test.ts` (`2/2`) & `24/24` Playwright checks (`#main-content` Tab) |
+| **`[DEF-22]`** | `P2` | Stale M2–M3 UI/doc copy, `GROQ_URL` `.env.example`, `/knowledge` guideline status, `"best practices"` FP | **`FIXED`** | `page.tsx`, `new-document-form.tsx`, `ai-service/.env.example`, `knowledge/page.tsx`, `seed.sql` & `0004`, `README.md` & `docs/*`; `verify_ai_trust_after.py` (`100%` det precision, `best_practices_fp: false`) |
+| **`[DEF-23]`** | `P3` | Dead UI code (`Dialog`, `toast`, `sonner`) & vestigial schema columns | **`FIXED`** | Removed `web/components/ui/{dialog,toast}.tsx`, `<Toaster />`, `sonner`; added composite FK `fk_comments_ws_doc` to `0004`; retained `comments` / `documents.version` / `.dark` tokens non-destructively |
 
 ---
 
-### Tier B — Approved (`[DEF-08]`, `[DEF-10]`) & Deferred (`[DEF-09]`, `[DEF-11]`, `[DEF-12]`)
+## Detailed Remediation Notes (`[DEF-09]`, `[DEF-11]`, `[DEF-12]`, `[DEF-14]`–`[DEF-23]`)
 
-### `[DEF-08]` — `ai-service` `POST /review` returns HTTP `422` schema error before HTTP `401` auth when payload is invalid
-- **Severity:** `P2` | **Tier:** `Tier B` *(APPROVED — touches `ai-service/main.py`)* | **Layer:** L3, L4, L5 | **Status:** `FIXED (3727052)`
-- **Before Evidence:** Unauthenticated `POST http://127.0.0.1:8000/review` with `{}` returned `HTTP 422` revealing Pydantic schema requirements (`document_id`, `workspace_id`, etc.) before auth validation.
-- **Root Cause:** `ai-service/main.py:375-377` validated `x_api_key` inside the route handler after FastAPI parsed `ReviewRequest`.
-- **Fix Applied (`3727052`):** Added RED->GREEN test `test_review_rejects_unauthenticated_empty_body_with_401` in `ai-service/test_checks.py` and moved `require_key` to `dependencies=[Depends(require_key)]` on `@app.post("/review")` in `ai-service/main.py`.
-- **After Evidence:** `.\ai-service\.venv\Scripts\python.exe -m pytest -q ai-service` → `12 passed`; live `POST http://127.0.0.1:8000/review` with `{}` and no `x-api-key` returns `HTTP 401 {"detail":"unauthorized"}`.
+### `[DEF-09]` — Missing ESLint script/config & transitive `postcss` / `minimatch` advisories
+- **Status:** `FIXED`
+- **Changes:** Added `"lint": "next lint"`, adjusted `"test"` glob to run `lib/validators/*.test.* lib/server/*.test.* lib/supabase/*.test.*`, added `eslint@9.39.5` & `eslint-config-next@15.5.29` in `web/package.json`, added `web/.eslintrc.json`, added `void _prevState;` in `web/app/(auth)/login/actions.ts`, and created `web/pnpm-workspace.yaml` with `overrides: { postcss: '>=8.5.23', 'minimatch@^10.0.0': '>=11.0.1' }`.
+- **Verification:** `pnpm --dir web lint` -> `✔ No ESLint warnings or errors`; `pnpm --dir web audit --json` -> `exit 0`, `0` advisories across 419 packages; isolated clean-env build resolved `postcss 8.5.32`.
 
-### `[DEF-09]` — Missing ESLint script/config & 4 transitive `postcss` advisories in `pnpm audit`
-- **Severity:** `P2` | **Tier:** `Tier B` *(DEFERRED — dependency changes in `web/package.json` / `pnpm-lock.yaml`)* | **Layer:** L1, L5(e) | **Status:** `OPEN / DEFERRED (Tier B)`
-- **Evidence (Round 1 & Round 2):** `web/package.json:5-11` has no `"lint"` script or ESLint devDependencies; `pnpm --dir web audit --json` reports `{'info': 0, 'low': 0, 'moderate': 2, 'high': 2, 'critical': 0}` (4 transitive `next > postcss <= 8.5.22` advisories).
-- **Root Cause:** ESLint was omitted in M0 and transitive `postcss` inside Next `15.5.29` resolves below `8.5.23`.
-- **Proposed Diff (awaiting `APPROVED`):**
-```diff
- // web/package.json
-   "scripts": {
-     "dev": "next dev",
-     "build": "next build",
-     "start": "next start",
-+    "lint": "next lint",
-     "test": "node --test lib/validators/*.test.*",
-     "typecheck": "tsc --noEmit"
-   },
-   "devDependencies": {
-+    "eslint": "^9.x",
-+    "eslint-config-next": "^15.5.29",
-...
-+  },
-+  "pnpm": {
-+    "overrides": {
-+      "postcss": ">=8.5.23"
-+    }
-   }
-```
+### `[DEF-11]` — Protected SSR latency from redundant `auth.getUser()` calls
+- **Status:** `FIXED`
+- **Changes:** Added [`web/lib/supabase/claims.ts`](../web/lib/supabase/claims.ts) (`getCachedPublicJwks` with 10-minute bounded in-memory cache + `inFlight` dedupe, `getVerifiedClaimsUser` via `@supabase/auth-js` `getClaims(undefined, { jwks })` with automatic HS256 `getUser()` fallback). Switched [`web/middleware.ts`](../web/middleware.ts), [`web/lib/workspace.ts`](../web/lib/workspace.ts), and [`web/app/(auth)/login/page.tsx`](../web/app/%28auth%29/login/page.tsx) to `getVerifiedClaimsUser()` while retaining strict `auth.getUser()` on API routes (`api/documents/route.ts`, `review-workflow.ts`, `decision-workflow.ts`).
+- **Verification:** `claims.test.ts` (`4/4` pass); Playwright `:3106` BEFORE (`6472.2 ms` login redirect, `/dashboard` `5x` median `2143.7 ms`, max `5046.5 ms`) -> AFTER (`1600.2 ms` login redirect, `/dashboard` `5x` median `1351.5 ms`, max `1790.3 ms`).
 
-### `[DEF-10]` — `documents_update` RLS `with check` allows changing `workspace_id`/`created_by`/`status`; broad `GRANT DELETE` & missing RLS indexes
-- **Severity:** `P1` *(database defense-in-depth; M1 exposes no document `UPDATE` route/UI)* | **Tier:** `Tier B` *(APPROVED — touches `supabase/`)* | **Layer:** L5(g) | **Status:** `SQL COMMITTED (1db160f) — NOT APPLIED, PENDING USER-RUN`
-- **Before Evidence:** `supabase/migrations/0001_schema.sql:163-173` called `auth.uid()` directly rather than `(select auth.uid())`; lines `158-160` omitted RLS indexes on `workspace_members`, `guideline_rules`, `approved_facts`, and `terminology`; `documents_update` `with check (public.is_member(workspace_id))` allowed altering `workspace_id`/`created_by` on update; line `240` granted `delete` on all public tables to `authenticated`.
-- **Root Cause:** Compact M0 DDL prioritized brevity over column immutability checks, least-privilege grants, and RLS index coverage.
-- **Fix Applied (`1db160f`):** Added idempotent `supabase/migrations/0002_rls_hardening.sql` (not applied anywhere) containing `(select auth.uid())` in `is_member`/`has_role` (`SECURITY DEFINER`, `SET search_path = public`), `BEFORE UPDATE` immutability trigger on `public.documents` (`workspace_id`, `created_by`), tightened `documents_update`, `REVOKE DELETE` from `authenticated` on all 14 public tables, the 4 indexes, and rollback note; extended `supabase/tests/rls_checks.sql` with cases `(f)` and `(g)`. Pending manual execution in Supabase SQL Editor.
+### `[DEF-12]` — Streaming `loading.tsx` flushes `HTTP 200` soft-404 status
+- **Status:** `FIXED`
+- **Changes:** Deleted `web/app/(app)/loading.tsx`, `web/app/(app)/documents/[id]/loading.tsx`, and `web/app/(app)/documents/[id]/history/loading.tsx`; kept leaf `loading.tsx` skeletons on `/dashboard`, `/knowledge`, and `/documents/new`.
+- **Verification:** `claims.test.ts` (`3rd` assertion) + Playwright `:3106` BEFORE (`200` across all 4 bad/missing UUIDs) -> AFTER (**`HTTP 404`** across `/documents/not-a-uuid`, `/documents/not-a-uuid/history`, `/documents/00000000-0000-0000-0000-000000000000`, and `.../history`).
 
-### `[DEF-11]` — Protected `/dashboard` SSR navigations show `4.22s` cold first-load latency (`1.31–1.61s` warm) due to repeated remote `auth.getUser()` RTT
-- **Severity:** `P1` | **Tier:** `Tier B` *(DEFERRED — touches `web/middleware.ts` & auth validation flow)* | **Layer:** L8 | **Status:** `OPEN / DEFERRED (Tier B)`
-- **Evidence:**
-  - Initial Round 2 (`next start`): `[3372.1, 3568.5, 2861.4, 3249.1, 4144.7]` ms (`median 3372.1 ms`, `worst 4144.7 ms`).
-  - Re-measurement against fresh production build (`pnpm build` + `next start -p 3000`): `[4224.2, 1559.9, 1309.2, 1613.7, 1399.3]` ms (`min 1309.2 ms`, **`median 1559.9 ms`**, `max 4224.2 ms`).
-- **Root Cause:** Every protected SSR page executes `supabase.auth.getUser()` remotely in `web/middleware.ts:48` and again in `web/lib/workspace.ts:47` before running page queries against remote Supabase over TLS.
-- **Proposed Fix (deferred):** Evaluate switching to Supabase asymmetric JWT signing keys with `supabase.auth.getClaims()` in `web/middleware.ts` (avoiding duplicate remote Auth RTT while keeping server signature verification), or passing verified session context cleanly without trusting unverified cookies.
+### `[DEF-14]` — Post-review `documents` immutability, `0003` audit lock, composite FKs & helper RPC ACLs
+- **Status:** `USER-RUN` *(Code & SQL Complete — Awaiting Manual Execution in Supabase SQL Editor)*
+- **Changes:** Created idempotent [`supabase/migrations/0004_remediation_integrity_and_rpc.sql`](../supabase/migrations/0004_remediation_integrity_and_rpc.sql) revoking `EXECUTE` on `is_member` & `has_role` from `PUBLIC, anon`, tightening `documents_insert` (`status = 'draft'`), extending `enforce_documents_immutable_columns()` to block non-`service_role` mutations of `documents.status` and post-review `title`/`content`, adding composite workspace FKs (`fk_guideline_rules_ws_guideline`, `fk_review_runs_ws_doc`, `fk_comments_ws_doc`), and adding `remediation_checks.sql` (`cases h–o`). `0003_audit_server_only.sql` & `decision_rls.sql` remain ready.
+- **Verification:** Static SQL check clean (`dollars=8, parens_diff=0`); live DB verification awaits Project Owner SQL Editor run (`USER-RUN`).
 
-### `[DEF-12]` — Streaming `loading.tsx` on parent `(app)` and `[id]` dynamic routes flushes `HTTP 200` soft-404 status before `notFound()` renders
-- **Severity:** `P2` | **Tier:** `Tier B` *(DEFERRED — requires deleting 3 tracked `loading.tsx` files)* | **Layer:** L3, L6 | **Status:** `OPEN / DEFERRED (Tier B)`
-- **Evidence (Round 2):** Before `3cf731c`, `GET /documents/not-a-uuid/history` returned true `HTTP 404` (`9d0d94f`). After `3cf731c` added `loading.tsx` across all `(app)` routes, `GET /documents/not-a-uuid`, `GET /documents/not-a-uuid/history`, and `GET /documents/00000000-0000-0000-0000-000000000000` render `<h1>Page not found</h1>` in DOM via streamed `NEXT_NOT_FOUND`, **but flush HTTP `200` status headers** (`history_negative_checks: { bad_uuid_status: 200, missing_uuid_status: 200 }`).
-- **Root Cause:** Next.js wraps every route segment (and child segments) beneath `loading.tsx` inside React `<Suspense>`, sending HTTP `200` streaming headers immediately before async `notFound()` runs in `documents/[id]/page.tsx` or `documents/[id]/history/page.tsx`.
-- **Proposed Diff (deferred):** Remove the 3 `loading.tsx` boundaries covering parent/`[id]` segments while retaining `loading.tsx` on `/dashboard`, `/knowledge`, and `/documents/new`:
-```diff
-- delete web/app/(app)/loading.tsx
-- delete web/app/(app)/documents/[id]/loading.tsx
-- delete web/app/(app)/documents/[id]/history/loading.tsx
-```
+### `[DEF-15]` — Transactional `record_review_decision` RPC & `review_runs` partial unique concurrency guard
+- **Status:** `USER-RUN` *(App & SQL Complete — Awaiting Manual `0004` Execution in Supabase SQL Editor)*
+- **Changes:** Added `uq_review_runs_one_running` (`WHERE status = 'running'`) and transactional `SECURITY DEFINER` `public.record_review_decision(...)` RPC in `0004`; extracted pure testable workflows [`web/lib/server/decision-workflow.ts`](../web/lib/server/decision-workflow.ts) (`503` guidance if `0004` unapplied, `42501`/`23505`/`P0002`/`22023` mapping) and [`web/lib/server/review-workflow.ts`](../web/lib/server/review-workflow.ts) (handles `23505` -> `409`, checks cleanup/status/audit errors explicitly).
+- **Verification:** `decision-workflow.test.ts` (`3/3`), `review-workflow.test.ts` (`3/3`); live RPC execution awaits `0004` apply (`USER-RUN`).
+
+### `[DEF-16]` — UTF-16 offset alignment, duplicate LLM quote cursor & ambiguity-safe preview replacements
+- **Status:** `FIXED`
+- **Changes:** `ai-service/main.py` computes UTF-16 code-unit offsets (`build_utf16_index_map` + `utf16_index_to_cp_map`) and tracks per-quote occurrences via `cursor_by_quote`; `resolveHighlightSpan()` in [`web/lib/validators/review.ts`](../web/lib/validators/review.ts) and [`applyAcceptedEditsToDocument()`](../web/lib/validators/decision.ts) use surrogate-pair-bounded disambiguation and refuse ambiguous fallback edits (`skippedUnmatchedCount`).
+- **Verification:** `pytest` (`test_utf16_offsets_match_js_across_unicode_and_emojis`, `test_llm_duplicate_quotes_map_to_distinct_occurrences`), `review.test.ts`, `decision.test.ts`, and `verify_ai_trust_after.py` (`duplicate_llm_offsets: [[0, 9], [10, 19]]`).
+
+### `[DEF-17]` — Semantic `verify()` rule checks, date/status filters & active Facts/Terms LLM context
+- **Status:** `FIXED` *(Code & Synthetic Harness `FIXED`; Live Groq evaluation `USER-RUN`)*
+- **Changes:** `verify()` enforces matching `category` (`terminology`, `fact`, `guideline_rule`) and non-escalated severity (`SEV_ORDER[f.severity] >= SEV_ORDER[rule.severity]`); `review-workflow.ts` filters `approved_facts` by today's UTC `valid_from`/`valid_until` window and joins `guidelines!inner(status)` on `'approved'`; `build_user_prompt()` supplies compact `APPROVED FACTS` & `APPROVED TERMINOLOGY`.
+- **Verification:** `pytest` (`test_verify_enforces_rule_category_and_severity_semantics`, `test_prompt_includes_active_facts_and_terminology_without_breaking_escape`), `review-workflow.test.ts`, and `verify_ai_trust_after.py` (`poisoned_rule_verification_status: "unverified"`).
+
+### `[DEF-18]` — Evidence gate on **Edit**, `edited` / `suggested_text === null` parity, bounded confidence & DB `CHECK`s
+- **Status:** `FIXED` *(UI/App/Python `FIXED`; `0004` SQL `CHECK`s await `USER-RUN` apply)*
+- **Changes:** [`canAcceptOrEditFinding()`](../web/lib/validators/decision.ts) enforces `isHighOrCritical && !evidenceWasOpened` and `suggestedText !== null` on both **Accept** and **Edit** in [`document-review-workspace.tsx`](../web/components/document-review-workspace.tsx); `0004` + `record_review_decision` enforce `suggested_text IS NOT NULL`, `documents.title` length, non-blank content, `findings` offsets/confidence, and conditional `review_decisions` columns; `ai-service/main.py` enforces `Field(default=0.5, ge=0.0, le=1.0)` and adds excess truncated LLM items past top 5 into `dropped`.
+- **Verification:** `decision.test.ts` (`6/6`), `pytest` (`test_run_llm_truncation_increments_dropped_and_confidence_bounded`), `verify_ai_trust_after.py` (`truncation_dropped_count: 1`).
+
+### `[DEF-19]` — Sanitized upstream errors, `/ready` (`200`/`503`) & 5-key `/api/health?probe=1`
+- **Status:** `FIXED`
+- **Changes:** Added `format_llm_unavailable_detail()` & `/ready` (`200`/`503`) + `token_configured` in `/health` (`ai-service/main.py`), defensive `RAW_PYTHON_EXCEPTION_NAMES` fallback in `AiStatusBanner`, and `executeHealthCheck()` (`web/lib/server/health-workflow.ts` + `web/app/api/health/route.ts`) validating all 5 required keys and optional `?probe=1` upstream check.
+- **Verification:** `verify_phase6.py` (`6/6` mock-HTTP assertions), `health-workflow.test.ts` (`2/2`), `:3106` `/api/health` & `/api/health?probe=1` (`503`).
+
+### `[DEF-20]` — Structured logs, rate limiters & cloud hosting timeout/warm-up readiness
+- **Status:** `USER-RUN` *(Logging & Rate Limiting `FIXED` in Code; Cloud Timeout, Render/Railway Warm-Up & Docker Build `USER-RUN`)*
+- **Changes:** Added redacting structured JSON logger (`web/lib/server/logger.ts`) and in-memory fixed-window rate limiters (`web/lib/server/rate-limit.ts`) in `review-workflow.ts`, `decision-workflow.ts`, `api/documents/route.ts`, and `login/actions.ts`.
+- **Remaining:** Verify Vercel `60s` Fluid Compute/Pro timeout, build `ai-service/Dockerfile`, warm `<AI_URL>/ready`, and test `<WEB_URL>` incognito (`USER-RUN`).
+
+### `[DEF-21]` — UI contrast, `<SkipLink />`, non-nested focus, `Textarea` border, collapsed copy & Reject validation
+- **Status:** `FIXED`
+- **Changes:** Updated `--border-subtle` (`#888378` light `>= 3.20:1`, `#6C7482` dark `>= 3.21:1`) in `globals.css`; added `<SkipLink />` + `<main id="main-content" tabIndex={-1}>` across `app-shell.tsx`, `page.tsx`, `login/page.tsx`, `not-found.tsx`, `error.tsx`; replaced nested `<article tabIndex={0}>` with `#N` `<button>` + `onFocusCapture`; added `aria-[invalid=true]:border-destructive` in `textarea.tsx`; corrected collapsed text for Medium/Low; validated non-blank Reject input locally before `fetch`.
+- **Verification:** `accessibility.test.ts` (`2/2`), `verify_playwright_4vp_after.py` (`24/24` viewport checks pass, `skip_link_first_tab_href: "#main-content"`, `reduced_motion_duration: "1e-05s"`).
+
+### `[DEF-22]` — Copy/doc drift, `GROQ_URL`, `/knowledge` parent status & `"best practices"` FP
+- **Status:** `FIXED`
+- **Changes:** Removed stale M2–M3 text from `page.tsx` & `new-document-form.tsx`; added `GROQ_URL` to `ai-service/.env.example`; joined `guidelines.status` in `/knowledge`; updated `seed.sql` & `0004` with `best(?!\s+practices\b)`; updated `README.md` & `docs/*`.
+- **Verification:** `verify_ai_trust_after.py` (`100%` det precision, `best_practices_fp: false`), `pytest` (`test_best_practices_pattern_ignores_benign_phrase`), Playwright stale-copy scan `false` across all routes.
+
+### `[DEF-23]` — Dead UI code & vestigial DB columns
+- **Status:** `FIXED`
+- **Changes:** Deleted unused `web/components/ui/dialog.tsx` & `toast.tsx`, removed `<Toaster />` from `web/app/layout.tsx`, removed unused `sonner` dependency; retained `public.comments` (added `fk_comments_ws_doc` in `0004`), `documents.version`, and WCAG-fixed `.dark` tokens non-destructively.
+- **Verification:** `git grep` confirms `0` imports of deleted components or `sonner`; `pnpm lint` & `next build` exit `0`.

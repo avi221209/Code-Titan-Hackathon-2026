@@ -4,7 +4,7 @@ Evidence-backed brand compliance review workspace built for **CodeTitans India 2
 
 BrandGuardian checks marketing and product copy against workspace-approved guidelines, facts, and controlled terminology, separates deterministic checks from best-effort LLM suggestions with explicit verification labels, and enforces human review authority through PostgreSQL Row-Level Security (RLS) and chronological audit logging.
 
-> **Current Status:** M0–M3 code, unit/Python tests, SQL hardening (`0002`), and deployment prep are implemented and verified. Live cloud deployment (`<WEB_URL>`, `<AI_URL>`), live end-to-end Groq/Supabase DB runs, `decision_rls.sql`, and post-test `0003_audit_server_only.sql` are **`USER-RUN`** (see [`docs/deployment.md`](docs/deployment.md) and [`docs/test-evidence.md`](docs/test-evidence.md)).
+> **Current Status:** M0–M3 code, reliability remediation (`[DEF-09]`, `[DEF-11]`, `[DEF-12]`, `[DEF-14]`–`[DEF-23]`), `pytest` (`19/19`), Web unit tests (`34/34`), ESLint (`0` warnings/errors), `pnpm audit` (`0` advisories), and isolated clean-env production build are implemented and verified in the working tree. Live cloud deployment (`<WEB_URL>`, `<AI_URL>`), live end-to-end Groq/Supabase DB runs, `decision_rls.sql`, post-test `0003_audit_server_only.sql`, and migration/test `0004_remediation_integrity_and_rpc.sql` / `remediation_checks.sql` are **`USER-RUN`** (see [`docs/deployment.md`](docs/deployment.md) and [`docs/test-evidence.md`](docs/test-evidence.md)).
 
 ---
 
@@ -44,7 +44,7 @@ All workspace rules, facts, terminology, and sample copy belong to the synthetic
      - `guarantee 300% revenue growth in just 7 days` (`unsupported_claim`, `critical`, **Verified**)
    - Confirm each card shows verification status (`Verified` / `Unverified`), `AI-generated` when `origin === "llm"`, and `Confidence: X% (estimate)`.
 4. **Enforce Evidence Gate & Record Human Decisions (`/documents/[id]`):**
-   - On **High** or **Critical** findings, notice **Evidence** starts collapsed and **Accept** stays disabled until you click **Inspect evidence**.
+   - On **High** or **Critical** findings, **Evidence** starts collapsed and both **Accept** and **Edit** stay disabled until you click **Inspect evidence**.
    - Exercise **Accept**, **Edit** -> **Save edit**, **Reject** *(requires non-blank reason)* -> **Confirm reject**, or **Dismiss**.
    - Hard-refresh (`Ctrl+Shift+R`) to verify persisted decisions and attribution; once every suggestion in the latest completed run has a decision, the document status badge updates to **Reviewed**.
 5. **Preview Final Copy & Inspect Audit Trail (`/documents/[id]/history`):**
@@ -57,14 +57,14 @@ All workspace rules, facts, terminology, and sample copy belong to the synthetic
 
 ```text
 brandguardian/
-├── web/                  # Next.js 15 App Router frontend + server BFF route handlers (pnpm)
+├── web/                  # Next.js 15 App Router frontend + server BFF route handlers (pnpm + ESLint)
 ├── ai-service/           # Python FastAPI deterministic + LLM checker/verifier microservice + Dockerfile
 ├── supabase/
-│   ├── migrations/       # 0001_schema.sql, 0002_rls_hardening.sql, 0003_audit_server_only.sql
+│   ├── migrations/       # 0001_schema.sql, 0002_rls_hardening.sql, 0003_audit_server_only.sql, 0004_remediation_integrity_and_rpc.sql
 │   ├── seed.sql          # Synthetic "Asterra (demo)" & "Northwind (isolation test)" seed
-│   └── tests/            # Manual SQL Editor impersonation scripts (rls_checks.sql, decision_rls.sql)
+│   └── tests/            # Manual SQL Editor impersonation scripts (rls_checks.sql, decision_rls.sql, remediation_checks.sql)
 ├── docs/                 # Deployment, architecture, features, AI disclosure, evidence, limitations, roadmap, team, checklist
-└── .planning/            # QA matrix, defect log, decisions needed, autonomous reports
+└── .planning/            # QA matrix, defect log, remediation reports, decisions needed, autonomous reports
 ```
 
 ---
@@ -80,7 +80,7 @@ brandguardian/
 ### 1. Environment Variables
 Copy `.env.example` templates locally (never commit `.env` or `.env.local`):
 - **`web/.env.example` -> `web/.env.local`:** `NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_ANON_KEY`, `SUPABASE_SERVICE_ROLE_KEY`, `AI_SERVICE_URL`, `AI_SERVICE_TOKEN`, `DEMO_EMAIL`, `DEMO_PASSWORD`.
-- **`ai-service/.env.example` -> `ai-service/.env`:** `AI_SERVICE_TOKEN` (must match `web/.env.local`), `LLM_PROVIDER`, `GROQ_API_KEY`, `GROQ_MODEL`, `LLM_TIMEOUT` (plus `OLLAMA_URL` / `OLLAMA_MODEL` for optional local mode).
+- **`ai-service/.env.example` -> `ai-service/.env`:** `AI_SERVICE_TOKEN` (must match `web/.env.local`), `LLM_PROVIDER`, `GROQ_API_KEY`, `GROQ_MODEL`, `GROQ_URL`, `LLM_TIMEOUT` (plus `OLLAMA_URL` / `OLLAMA_MODEL` for optional local mode).
 
 ### 2. Run `ai-service/` (Terminal 1)
 ```powershell
@@ -105,7 +105,8 @@ Open `http://127.0.0.1:3000`.
 2. Create `judge@brandguardian.demo` and `outsider@brandguardian.demo` in Supabase Auth, then run `supabase/seed.sql`.
 3. Apply `supabase/migrations/0002_rls_hardening.sql` (`[DEF-10]`) and run `supabase/tests/rls_checks.sql`.
 4. Run `supabase/tests/decision_rls.sql` (wrapped in `begin` / `rollback`).
-5. **Only after a live M3 decision test passes**, apply `supabase/migrations/0003_audit_server_only.sql`.
+5. Apply `supabase/migrations/0003_audit_server_only.sql` **only after** a live M3 decision test cleanly passes (locks `audit_events` inserts to server-only).
+6. Apply `supabase/migrations/0004_remediation_integrity_and_rpc.sql` (required for `POST /api/suggestions/[id]/decision` transactional `record_review_decision` RPC, post-review `documents` lock, composite FKs, and concurrent run guard) and run `supabase/tests/remediation_checks.sql` (`cases h–o`, wrapped in `begin` / `rollback`).
 
 ---
 
@@ -113,11 +114,12 @@ Open `http://127.0.0.1:3000`.
 
 Full commands, outputs, dates, and `Agent` vs `USER-RUN` boundaries are recorded in [`docs/test-evidence.md`](docs/test-evidence.md):
 
-- **AI Service tests:** `.\ai-service\.venv\Scripts\python.exe -m pytest -q ai-service` -> `12 passed, 1 warning in 0.55s` (`2026-11-10`).
-- **Web TypeScript:** `pnpm --dir web typecheck` and `pnpm --dir web exec tsc --noEmit --noUnusedLocals --noUnusedParameters` -> exit `0`.
-- **Web unit tests:** `pnpm --dir web test` -> `17 passed, 0 failed` (`m1.test.ts` 5, `review.test.ts` 7, `decision.test.ts` 4, `security.test.mjs` 1).
+- **AI Service tests:** `.\ai-service\.venv\Scripts\python.exe -m pytest -q ai-service` -> `19 passed, 1 warning` (`2026-11-10`).
+- **Web TypeScript & Lint:** `pnpm --dir web typecheck`, strict unused check, and `pnpm --dir web lint` (`eslint` `9.39.5` / `eslint-config-next` `15.5.29`) -> exit `0` (`0` warnings/errors).
+- **Web unit & workflow tests:** `pnpm --dir web test` -> `34 passed, 0 failed` (`m1`, `review`, `decision`, `accessibility`, `claims`, `decision-workflow`, `review-workflow`, `health-workflow`, `security`).
+- **Web dependency audit:** `pnpm --dir web audit --json` -> exit `0`, **`0` advisories** across all dependencies.
 - **Web production build (local + isolated clean checkout with documented env vars only):** exit `0`.
-- **RLS isolation & hardening (`USER-RUN`):** `7 of 7` cases (`a`–`g`) passed, `pg_policies` active across all `14` public tables, `0` `DELETE` grants for `authenticated`.
+- **RLS isolation & hardening (`USER-RUN`):** `0002` + `rls_checks.sql` `7 of 7` cases (`a`–`g`) passed, `pg_policies` active across all `14` public tables, `0` `DELETE` grants for `authenticated`; `0003`, `0004`, `decision_rls.sql`, and `remediation_checks.sql` remain **`USER-RUN`**.
 
 ---
 

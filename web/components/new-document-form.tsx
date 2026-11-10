@@ -180,7 +180,8 @@ export function NewDocumentForm() {
 
       <div className="flex flex-wrap items-center justify-between gap-4 border-t border-border pt-5">
         <p className="text-xs text-muted-foreground">
-          Persists as a draft record; automated compliance review launches in M2.
+          Saves as a workspace draft so you can run compliance inspection and
+          record review decisions on the next screen.
         </p>
         <Button
           type="submit"

@@ -1,4 +1,6 @@
 import { NextResponse } from 'next/server';
+import { defaultLogger } from '@/lib/server/logger';
+import { documentWriteRateLimiter } from '@/lib/server/rate-limit';
 import { createClient } from '@/lib/supabase/server';
 import { validateDocumentInput } from '@/lib/validators/m1';
 import { getWorkspaceContext } from '@/lib/workspace';
@@ -26,6 +28,24 @@ export async function GET() {
 
   if (authError || !user) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  }
+
+  const rate = documentWriteRateLimiter.check(`documents:${user.id}`);
+  if (!rate.allowed) {
+    defaultLogger.warn('documents.rate_limited', {
+      actorId: user.id,
+      retryAfterSeconds: rate.retryAfterSeconds,
+    });
+    return NextResponse.json(
+      {
+        error:
+          'Too many document creation requests. Please wait a moment and try again.',
+      },
+      {
+        status: 429,
+        headers: { 'Retry-After': String(rate.retryAfterSeconds) },
+      }
+    );
   }
 
   const { data, error } = await supabase
@@ -60,6 +80,24 @@ export async function POST(request: Request) {
 
   if (authError || !user) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  }
+
+  const rate = documentWriteRateLimiter.check(`documents:${user.id}`);
+  if (!rate.allowed) {
+    defaultLogger.warn('documents.rate_limited', {
+      actorId: user.id,
+      retryAfterSeconds: rate.retryAfterSeconds,
+    });
+    return NextResponse.json(
+      {
+        error:
+          'Too many document creation requests. Please wait a moment and try again.',
+      },
+      {
+        status: 429,
+        headers: { 'Retry-After': String(rate.retryAfterSeconds) },
+      }
+    );
   }
 
   let body: unknown;
@@ -110,6 +148,11 @@ export async function POST(request: Request) {
         { status: 403 }
       );
     }
+    defaultLogger.error('documents.insert_failed', {
+      workspaceId: ctx.workspace.workspaceId,
+      actorId: user.id,
+      code: insertError.code ?? null,
+    });
     return NextResponse.json(
       { error: 'Failed to save document.' },
       { status: 500 }

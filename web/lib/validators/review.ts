@@ -381,6 +381,39 @@ export function classifyRunningReviews(
   return { staleIds, activeIds };
 }
 
+function findAllOccurrences(haystack: string, needle: string): number[] {
+  const positions: number[] = [];
+  if (needle.length === 0) {
+    return positions;
+  }
+  let from = 0;
+  while (from <= haystack.length - needle.length) {
+    const idx = haystack.indexOf(needle, from);
+    if (idx < 0) {
+      break;
+    }
+    positions.push(idx);
+    from = idx + 1;
+  }
+  return positions;
+}
+
+function countSurrogatePairsBefore(text: string, utf16End: number): number {
+  let pairs = 0;
+  const bound = Math.min(utf16End, text.length);
+  for (let i = 0; i < bound; i += 1) {
+    const code = text.charCodeAt(i);
+    if (code >= 0xd800 && code <= 0xdbff && i + 1 < bound) {
+      const next = text.charCodeAt(i + 1);
+      if (next >= 0xdc00 && next <= 0xdfff) {
+        pairs += 1;
+        i += 1;
+      }
+    }
+  }
+  return pairs;
+}
+
 export function resolveHighlightSpan(
   content: string,
   finding: Pick<HighlightableFinding, 'matched_text' | 'start_offset' | 'end_offset'>
@@ -403,13 +436,37 @@ export function resolveHighlightSpan(
   }
 
   if (matched_text.length > 0) {
-    const idx = content.indexOf(matched_text);
-    if (idx >= 0) {
+    const occurrences = findAllOccurrences(content, matched_text);
+    if (occurrences.length === 0) {
+      return null;
+    }
+
+    if (occurrences.length === 1) {
+      const idx = occurrences[0];
       return {
         start: idx,
         end: idx + matched_text.length,
         via: 'indexOf',
       };
+    }
+
+    // Multiple occurrences exist: only map a legacy offset when surrogate pairs
+    // explain the shift uniquely and unambiguously (never guess across duplicates).
+    if (Number.isInteger(start_offset) && start_offset >= 0) {
+      const plausibleCandidates = occurrences.filter((occ) => {
+        const surrogatesBefore = countSurrogatePairsBefore(content, occ);
+        const shift = occ - start_offset;
+        return surrogatesBefore > 0 && shift > 0 && shift <= surrogatesBefore;
+      });
+
+      if (plausibleCandidates.length === 1) {
+        const chosen = plausibleCandidates[0];
+        return {
+          start: chosen,
+          end: chosen + matched_text.length,
+          via: 'indexOf',
+        };
+      }
     }
   }
 

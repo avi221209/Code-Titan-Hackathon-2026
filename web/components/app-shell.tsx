@@ -2,6 +2,7 @@ import Link from 'next/link';
 import { LogOut, ShieldCheck } from 'lucide-react';
 import { signOutAction } from '@/app/(auth)/login/actions';
 import { AppNavLinks } from '@/components/app-nav';
+import { SkipLink } from '@/components/skip-link';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import type { WorkspaceRole } from '@/lib/workspace';
@@ -24,6 +25,7 @@ export function AppShell({
 }: AppShellProps) {
   return (
     <div className="flex min-h-[100dvh] flex-col bg-background text-foreground">
+      <SkipLink />
       <header className="border-b border-border bg-card">
         <div className="mx-auto flex max-w-7xl flex-wrap items-center justify-between gap-4 px-4 py-3 sm:px-6 sm:py-4">
           <div className="flex flex-wrap items-center gap-4 sm:gap-6">
@@ -70,8 +72,10 @@ export function AppShell({
         </div>
       </header>
       <main
+        id="main-content"
+        tabIndex={-1}
         className={cn(
-          'mx-auto w-full max-w-7xl flex-1 px-4 py-8 sm:px-6',
+          'mx-auto w-full max-w-7xl flex-1 px-4 py-8 focus:outline-none sm:px-6',
           className
         )}
       >

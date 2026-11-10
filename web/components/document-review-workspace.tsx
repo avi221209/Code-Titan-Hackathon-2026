@@ -34,13 +34,14 @@ import { cn } from '@/lib/utils';
 import {
   MAX_DECISION_TEXT_LENGTH,
   applyAcceptedEditsToDocument,
+  canAcceptOrEditFinding,
   canRoleRecordDecision,
+  validateDecisionInput,
   type DecisionType,
 } from '@/lib/validators/decision';
 import {
   buildHighlightedDocumentSegments,
   isStaleRunningReview,
-  resolveHighlightSpan,
   sortFindingsBySeverityAndOffset,
 } from '@/lib/validators/review';
 import type { WorkspaceRole } from '@/lib/workspace';
@@ -486,6 +487,22 @@ export function DocumentReviewWorkspace({
       return;
     }
 
+    const clientCheck = validateDecisionInput({
+      decision,
+      ...(extra?.editedText !== undefined
+        ? { editedText: extra.editedText }
+        : {}),
+      ...(extra?.comment !== undefined ? { comment: extra.comment } : {}),
+    });
+    if (!clientCheck.ok) {
+      setDecisionErrors((prev) => ({
+        ...prev,
+        [finding.id]: clientCheck.error,
+      }));
+      setLiveAnnouncement(clientCheck.error);
+      return;
+    }
+
     setDecisionErrors((prev) => {
       const copy = { ...prev };
       delete copy[finding.id];
@@ -696,6 +713,9 @@ export function DocumentReviewWorkspace({
                 {previewResult.skippedOverlapCount > 0
                   ? ` Skipped ${previewResult.skippedOverlapCount} overlapping edit(s).`
                   : ''}
+                {previewResult.skippedUnmatchedCount > 0
+                  ? ` Skipped ${previewResult.skippedUnmatchedCount} ambiguous or unmatched edit(s).`
+                  : ''}
               </p>
             </div>
 
@@ -815,8 +835,10 @@ export function DocumentReviewWorkspace({
             <ol className="flex flex-col gap-4">
               {sortedFindings.map((finding, index) => {
                 const isSelected = selectedFindingId === finding.id;
-                const hasHighlight =
-                  resolveHighlightSpan(content, finding) !== null;
+                const hasHighlight = segments.some(
+                  (seg) =>
+                    seg.type === 'highlight' && seg.findingId === finding.id
+                );
                 const confidencePct = Math.round(finding.confidence * 100);
                 const isHighOrCritical =
                   finding.severity === 'high' ||
@@ -834,31 +856,27 @@ export function DocumentReviewWorkspace({
                   activeEditor?.findingId === finding.id &&
                   activeEditor.mode === 'reject';
 
-                const acceptDisabled =
-                  hasDecision ||
-                  !canDecide ||
-                  isSubmittingCard ||
-                  !finding.suggestion_id ||
-                  (isHighOrCritical && !evidenceWasOpened);
-
                 const commonActionDisabled =
                   hasDecision ||
                   !canDecide ||
                   isSubmittingCard ||
                   !finding.suggestion_id;
 
+                const acceptOrEditDisabled =
+                  commonActionDisabled ||
+                  !canAcceptOrEditFinding({
+                    severity: finding.severity,
+                    evidenceWasOpened,
+                    suggestedText: finding.suggested_text,
+                  });
+
                 return (
                   <li key={finding.id}>
                     <article
-                      ref={(el) => {
-                        findingRefs.current[finding.id] = el;
-                      }}
-                      tabIndex={0}
-                      onClick={() => setSelectedFindingId(finding.id)}
-                      onFocus={() => setSelectedFindingId(finding.id)}
+                      onFocusCapture={() => setSelectedFindingId(finding.id)}
                       aria-current={isSelected ? 'true' : undefined}
                       className={cn(
-                        'flex flex-col gap-3 rounded-lg border p-4 transition-colors duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring motion-reduce:transition-none',
+                        'flex flex-col gap-3 rounded-lg border p-4 transition-colors duration-150 motion-reduce:transition-none',
                         isSelected
                           ? 'border-primary bg-accent/25'
                           : 'border-border bg-background hover:bg-muted/40'
@@ -866,9 +884,18 @@ export function DocumentReviewWorkspace({
                     >
                       <div className="flex flex-wrap items-center justify-between gap-2">
                         <div className="flex flex-wrap items-center gap-2">
-                          <span className="font-mono text-xs text-muted-foreground">
-                            #{index + 1}
-                          </span>
+                          <button
+                            ref={(el) => {
+                              findingRefs.current[finding.id] = el;
+                            }}
+                            type="button"
+                            onClick={() => setSelectedFindingId(finding.id)}
+                            aria-pressed={isSelected}
+                            className="inline-flex items-center rounded border border-border bg-card px-2 py-0.5 font-mono text-xs text-muted-foreground transition-colors duration-150 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring motion-reduce:transition-none"
+                          >
+                            <span className="sr-only">Select finding </span>#
+                            {index + 1}
+                          </button>
                           <SeverityBadge severity={finding.severity} />
                           <Badge
                             variant="outline"
@@ -963,8 +990,9 @@ export function DocumentReviewWorkspace({
                           </div>
                         ) : (
                           <p className="mt-1.5 text-xs text-muted-foreground">
-                            Inspect evidence before accepting high or critical
-                            findings.
+                            {isHighOrCritical
+                              ? 'Inspect evidence before accepting or editing high or critical findings.'
+                              : 'Open the evidence panel to inspect cited workspace sources.'}
                           </p>
                         )}
                       </div>
@@ -1012,8 +1040,8 @@ export function DocumentReviewWorkspace({
                       isHighOrCritical &&
                       !evidenceWasOpened ? (
                         <p className="text-xs text-muted-foreground">
-                          Open the evidence panel above to enable Accept on this{' '}
-                          {finding.severity} finding.
+                          Open the evidence panel above to enable Accept or Edit
+                          on this {finding.severity} finding.
                         </p>
                       ) : null}
 
@@ -1023,7 +1051,7 @@ export function DocumentReviewWorkspace({
                             <Button
                               type="button"
                               size="sm"
-                              disabled={acceptDisabled}
+                              disabled={acceptOrEditDisabled}
                               onClick={() =>
                                 submitDecision(finding, 'accepted')
                               }
@@ -1036,7 +1064,7 @@ export function DocumentReviewWorkspace({
                               type="button"
                               variant="outline"
                               size="sm"
-                              disabled={commonActionDisabled}
+                              disabled={acceptOrEditDisabled}
                               onClick={() => {
                                 setDecisionErrors((prev) => {
                                   const copy = { ...prev };
@@ -1111,12 +1139,26 @@ export function DocumentReviewWorkspace({
                             rows={2}
                             maxLength={MAX_DECISION_TEXT_LENGTH}
                             value={activeEditor.text}
-                            onChange={(e) =>
+                            aria-invalid={Boolean(cardError)}
+                            aria-describedby={
+                              cardError
+                                ? `decision-error-${finding.id}`
+                                : undefined
+                            }
+                            onChange={(e) => {
+                              setDecisionErrors((prev) => {
+                                if (!(finding.id in prev)) {
+                                  return prev;
+                                }
+                                const copy = { ...prev };
+                                delete copy[finding.id];
+                                return copy;
+                              });
                               setActiveEditor({
                                 ...activeEditor,
                                 text: e.target.value,
-                              })
-                            }
+                              });
+                            }}
                             disabled={isSubmittingCard}
                           />
                           <div className="flex flex-wrap items-center gap-2">
@@ -1163,12 +1205,26 @@ export function DocumentReviewWorkspace({
                             maxLength={MAX_DECISION_TEXT_LENGTH}
                             placeholder="Explain why this finding does not apply..."
                             value={activeEditor.text}
-                            onChange={(e) =>
+                            aria-invalid={Boolean(cardError)}
+                            aria-describedby={
+                              cardError
+                                ? `decision-error-${finding.id}`
+                                : undefined
+                            }
+                            onChange={(e) => {
+                              setDecisionErrors((prev) => {
+                                if (!(finding.id in prev)) {
+                                  return prev;
+                                }
+                                const copy = { ...prev };
+                                delete copy[finding.id];
+                                return copy;
+                              });
                               setActiveEditor({
                                 ...activeEditor,
                                 text: e.target.value,
-                              })
-                            }
+                              });
+                            }}
                             disabled={isSubmittingCard}
                           />
                           <div className="flex flex-wrap items-center gap-2">
@@ -1195,6 +1251,7 @@ export function DocumentReviewWorkspace({
 
                       {cardError ? (
                         <p
+                          id={`decision-error-${finding.id}`}
                           role="alert"
                           className="rounded-md border border-severity-critical-border bg-severity-critical-bg px-3 py-2 text-xs text-severity-critical-fg"
                         >

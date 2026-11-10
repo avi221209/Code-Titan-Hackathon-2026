@@ -36,7 +36,7 @@ begin
     (ws, g, 'unsupported_claim', 'No guaranteed financial results without approved evidence.', 'critical',
        '\bguarantee[sd]?\b[^.]{0,40}', 'Remove the guarantee or attach approved evidence.', true),
     (ws, g, 'unsupported_claim', 'Avoid "cheapest", "best" and "number one" without substantiation.', 'high',
-       '\b(?:cheapest|best|number one)(?:\s+and\s+(?:cheapest|best|number one))?\b', 'Substantiate or remove the comparison.', true);
+       '\b(?:cheapest|best(?!\s+practices\b)|number one)(?:\s+and\s+(?:cheapest|best(?!\s+practices\b)|number one))?\b', 'Substantiate or remove the comparison.', true);
 
   insert into public.approved_facts(workspace_id, fact_text, topic, value, match_pattern, source_name, status) values
     (ws, 'Asterra was founded in 2021.', 'founded', '2021', '(?:founded|established)\s+in\s+(\d{4})', 'Asterra fact sheet', 'active'),
